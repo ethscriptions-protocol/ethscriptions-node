@@ -1,0 +1,278 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {SSTORE2} from "solady/utils/SSTORE2.sol";
+
+/// @title Ethscriptions ERC-721 Contract
+/// @notice Mints Ethscriptions as ERC-721 tokens based on L1 transaction data
+/// @dev Uses transaction hash as token ID to maintain consistency with existing system
+contract Ethscriptions is ERC721 {
+    /// @dev Maximum chunk size for SSTORE2 (24KB - 1 byte for STOP opcode)
+    uint256 private constant CHUNK_SIZE = 24575;
+    struct Ethscription {
+        bytes32 contentSha;
+        address creator;
+        address initialOwner;
+        address previousOwner;
+        uint256 ethscriptionNumber;
+        string mimetype;
+        string mediaType;
+        string mimeSubtype;
+        bool esip6;
+    }
+    
+    struct CreateEthscriptionParams {
+        bytes32 transactionHash;
+        address initialOwner;
+        bytes contentUri;  // Changed from string to bytes for efficient slicing
+        string mimetype;
+        string mediaType;
+        string mimeSubtype;
+        bool esip6;
+    }
+
+    /// @dev Transaction hash => Ethscription data
+    mapping(bytes32 => Ethscription) public ethscriptions;
+    
+    /// @dev Content SHA => SSTORE2 content pointers (single source of truth)
+    /// If array is non-empty, content exists. For ESIP6, we reuse existing pointers.
+    mapping(bytes32 => address[]) internal _contentBySha;
+    
+    /// @dev Total number of ethscriptions created
+    uint256 public totalEthscriptions;
+    
+    /// @notice Emitted when a new ethscription is created
+    event EthscriptionCreated(
+        bytes32 indexed transactionHash,
+        address indexed creator,
+        address indexed initialOwner,
+        bytes32 contentSha,
+        uint256 ethscriptionNumber,
+        uint256 pointerCount
+    );
+
+    error DuplicateContent();
+    error InvalidCreator();
+    error InvalidInitialOwner();
+    error EmptyContentUri();
+    error EthscriptionAlreadyExists();
+    error EthscriptionDoesNotExist();
+
+    constructor(string memory name_, string memory symbol_) 
+        ERC721(name_, symbol_) 
+    {}
+
+    /// @notice Create (mint) a new ethscription token
+    /// @dev Called via system transaction with msg.sender spoofed as the actual creator
+    /// @param params Struct containing all ethscription creation parameters
+    function createEthscription(
+        CreateEthscriptionParams calldata params
+    ) external returns (uint256 tokenId) {
+        address creator = msg.sender;
+        
+        if (creator == address(0)) revert InvalidCreator();
+        if (params.initialOwner == address(0)) revert InvalidInitialOwner();
+        if (params.contentUri.length == 0) revert EmptyContentUri();
+        if (ethscriptions[params.transactionHash].creator != address(0)) revert EthscriptionAlreadyExists();
+
+        // Compute SHA on-chain
+        bytes32 contentSha = sha256(params.contentUri);
+        
+        // Check if content already exists
+        address[] storage pointers = _contentBySha[contentSha];
+        uint256 existingLength = pointers.length;
+        
+        if (existingLength > 0 && !params.esip6) {
+            revert DuplicateContent();
+        }
+        
+        if (existingLength == 0) {
+            // New content: chunk and store via SSTORE2
+            uint256 contentLength = params.contentUri.length;
+            uint256 numChunks = (contentLength + CHUNK_SIZE - 1) / CHUNK_SIZE;
+            
+            for (uint256 i = 0; i < numChunks; i++) {
+                uint256 start = i * CHUNK_SIZE;
+                uint256 end = start + CHUNK_SIZE;
+                if (end > contentLength) {
+                    end = contentLength;
+                }
+                
+                // Use calldata slicing - no memory copying needed!
+                bytes calldata chunk = params.contentUri[start:end];
+                
+                // Store chunk via SSTORE2
+                address pointer = SSTORE2.write(chunk);
+                pointers.push(pointer);
+            }
+        }
+        // For ESIP6 with existing content, pointers already contains the addresses
+
+        ethscriptions[params.transactionHash] = Ethscription({
+            contentSha: contentSha,
+            creator: creator,
+            initialOwner: params.initialOwner,
+            previousOwner: creator, // Initially same as creator
+            ethscriptionNumber: totalEthscriptions,
+            mimetype: params.mimetype,
+            mediaType: params.mediaType,
+            mimeSubtype: params.mimeSubtype,
+            esip6: params.esip6
+        });
+
+        tokenId = uint256(params.transactionHash);
+        
+        totalEthscriptions++;
+
+        _mint(params.initialOwner, tokenId);
+
+        emit EthscriptionCreated(
+            params.transactionHash,
+            creator,
+            params.initialOwner,
+            contentSha,
+            totalEthscriptions - 1,
+            pointers.length
+        );
+    }
+
+    /// @notice Transfer an ethscription
+    /// @dev Called via system transaction with msg.sender spoofed as 'from'
+    /// @param to The recipient address
+    /// @param transactionHash The ethscription to transfer
+    function transferEthscription(
+        address to,
+        bytes32 transactionHash
+    ) external {
+        uint256 tokenId = uint256(transactionHash);
+        // Standard ERC721 transfer will handle authorization
+        transferFrom(msg.sender, to, tokenId);
+    }
+    
+    /// @notice Transfer an ethscription with previous owner validation (ESIP-2)
+    /// @dev Called via system transaction with msg.sender spoofed as 'from'
+    /// @param to The recipient address
+    /// @param transactionHash The ethscription to transfer
+    /// @param previousOwner The required previous owner for validation
+    function transferEthscriptionForPreviousOwner(
+        address to,
+        bytes32 transactionHash,
+        address previousOwner
+    ) external {
+        // Verify the previous owner matches
+        require(
+            ethscriptions[transactionHash].previousOwner == previousOwner,
+            "Previous owner mismatch"
+        );
+        
+        uint256 tokenId = uint256(transactionHash);
+        // Standard ERC721 transfer will handle current owner authorization
+        transferFrom(msg.sender, to, tokenId);
+    }
+
+    /// @dev Override _update to track previous owner
+    function _update(address to, uint256 tokenId, address auth) internal virtual override returns (address) {
+        address from = _ownerOf(tokenId);
+        
+        // Update previous owner if this is a transfer (not mint)
+        if (from != address(0)) {
+            bytes32 txHash = bytes32(tokenId);
+            ethscriptions[txHash].previousOwner = from;
+        }
+        
+        // Call parent implementation
+        return super._update(to, tokenId, auth);
+    }
+
+    /// @notice Get ethscription details (returns struct to avoid stack too deep)
+    function getEthscription(bytes32 transactionHash) external view returns (Ethscription memory) {
+        Ethscription memory etsc = ethscriptions[transactionHash];
+        if (etsc.creator == address(0)) revert EthscriptionDoesNotExist();
+        return etsc;
+    }
+
+    /// @notice Returns the full data URI for a token
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        bytes32 txHash = bytes32(tokenId);
+        Ethscription memory etsc = ethscriptions[txHash];
+        require(etsc.creator != address(0), "Token does not exist");
+        
+        address[] memory pointers = _contentBySha[etsc.contentSha];
+        require(pointers.length > 0, "No content stored");
+        
+        if (pointers.length == 1) {
+            // Single pointer - simple read
+            return string(SSTORE2.read(pointers[0]));
+        }
+        
+        // Multiple pointers - efficient assembly concatenation
+        bytes memory result;
+        assembly {
+            // Calculate total size needed
+            let totalSize := 0
+            let pointersLength := mload(pointers)
+            let dataOffset := 0x01 // SSTORE2 data starts after STOP opcode (0x00)
+            
+            for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
+                let pointer := mload(add(pointers, add(0x20, mul(i, 0x20))))
+                let codeSize := extcodesize(pointer)
+                totalSize := add(totalSize, sub(codeSize, dataOffset))
+            }
+            
+            // Allocate result buffer
+            result := mload(0x40)
+            let resultPtr := add(result, 0x20)
+            
+            // Copy data from each pointer
+            let currentOffset := 0
+            for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
+                let pointer := mload(add(pointers, add(0x20, mul(i, 0x20))))
+                let codeSize := extcodesize(pointer)
+                let chunkSize := sub(codeSize, dataOffset)
+                extcodecopy(pointer, add(resultPtr, currentOffset), dataOffset, chunkSize)
+                currentOffset := add(currentOffset, chunkSize)
+            }
+            
+            // Update length and free memory pointer with proper alignment
+            mstore(result, totalSize)
+            mstore(0x40, and(add(add(resultPtr, totalSize), 0x1f), not(0x1f)))
+        }
+        
+        return string(result);
+    }
+
+    /// @notice Get current owner of an ethscription
+    function currentOwner(bytes32 transactionHash) external view returns (address) {
+        Ethscription memory etsc = ethscriptions[transactionHash];
+        if (etsc.creator == address(0)) revert EthscriptionDoesNotExist();
+        uint256 tokenId = uint256(transactionHash);
+        return _ownerOf(tokenId);
+    }
+
+    /// @notice Get the number of content pointers for an ethscription
+    function getContentPointerCount(bytes32 transactionHash) external view returns (uint256) {
+        Ethscription memory etsc = ethscriptions[transactionHash];
+        if (etsc.creator == address(0)) revert EthscriptionDoesNotExist();
+        return _contentBySha[etsc.contentSha].length;
+    }
+    
+    /// @notice Get all content pointers for an ethscription
+    function getContentPointers(bytes32 transactionHash) external view returns (address[] memory) {
+        Ethscription memory etsc = ethscriptions[transactionHash];
+        if (etsc.creator == address(0)) revert EthscriptionDoesNotExist();
+        return _contentBySha[etsc.contentSha];
+    }
+    
+    /// @notice Read a specific chunk of content
+    /// @param transactionHash The ethscription transaction hash
+    /// @param index The chunk index to read
+    /// @return The chunk data
+    function readChunk(bytes32 transactionHash, uint256 index) external view returns (bytes memory) {
+        Ethscription memory etsc = ethscriptions[transactionHash];
+        if (etsc.creator == address(0)) revert EthscriptionDoesNotExist();
+        address[] memory pointers = _contentBySha[etsc.contentSha];
+        require(index < pointers.length, "Chunk index out of bounds");
+        return SSTORE2.read(pointers[index]);
+    }
+}

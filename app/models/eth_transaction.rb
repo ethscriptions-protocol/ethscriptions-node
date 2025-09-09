@@ -1,4 +1,6 @@
 class EthTransaction < ApplicationRecord
+  include EvmEthscriptionProcessor
+  
   class HowDidWeGetHereError < StandardError; end
   
   belongs_to :eth_block, foreign_key: :block_number, primary_key: :block_number, optional: true,
@@ -116,56 +118,9 @@ class EthTransaction < ApplicationRecord
     puts "Invalid attachment: #{e.message}, transaction_hash: #{transaction_hash}, block_number: #{block_number}"
   end
 
-  def create_ethscription_from_input!
-    potentially_valid = Ethscription.new(
-      {
-        creator: from_address,
-        previous_owner: from_address,
-        current_owner: to_address,
-        initial_owner: to_address,
-        content_uri: utf8_input,
-      }.merge(ethscription_attrs)
-    )
-    
-    save_if_valid_and_no_ethscription_created!(potentially_valid)
-  end
-  
-  def create_ethscription_from_events!
-    ethscription_creation_events.each do |creation_event|
-      next if creation_event['topics'].length != 2
-    
-      begin
-        initial_owner = Eth::Abi.decode(['address'], creation_event['topics'].second).first
-        
-        content_uri_data = Eth::Abi.decode(['string'], creation_event['data']).first
-        content_uri = HexDataProcessor.clean_utf8(content_uri_data)
-      rescue Eth::Abi::DecodingError
-        next
-      end
-          
-      potentially_valid = Ethscription.new(
-        {
-          creator: creation_event['address'],
-          previous_owner: creation_event['address'],
-          current_owner: initial_owner,
-          initial_owner: initial_owner,
-          content_uri: content_uri,
-          event_log_index: creation_event['logIndex'].to_i(16),
-        }.merge(ethscription_attrs)
-      )
-      
-      save_if_valid_and_no_ethscription_created!(potentially_valid)
-    end
-  end
-  
-  def save_if_valid_and_no_ethscription_created!(potentially_valid)
-    return if ethscription.present?
-    
-    if potentially_valid.valid_ethscription?
-      potentially_valid.eth_transaction = self
-      potentially_valid.save!
-    end
-  end
+  # Now handled by EvmEthscriptionProcessor module
+  # def create_ethscription_from_input!
+  # def create_ethscription_from_events!
   
   def ethscription_creation_events
     return [] unless EthTransaction.esip3_enabled?(block_number)
@@ -185,88 +140,9 @@ class EthTransaction < ApplicationRecord
     }
   end
   
-  def create_ethscription_transfers_from_input!
-    return unless transfers_ethscription_via_input?
-    
-    concatenated_hashes = input_no_prefix.scan(/.{64}/).map { |hash| "0x#{hash}" }
-    matching_ethscriptions = Ethscription.where(transaction_hash: concatenated_hashes)
-
-    sorted_ethscriptions = concatenated_hashes.map do |hash|
-      matching_ethscriptions.detect { |e| e.transaction_hash == hash }
-    end.compact
-  
-    sorted_ethscriptions.each do |ethscription|
-      potentially_valid = EthscriptionTransfer.new({
-        ethscription: ethscription,
-        from_address: from_address,
-        to_address: to_address,
-        transfer_index: transfer_index,
-      }.merge(transfer_attrs))
-      
-      potentially_valid.create_if_valid!
-    end
-  end
-  
-  def create_ethscription_transfers_from_events!
-    ethscription_transfer_events.each do |log|
-      topics = log['topics']
-      event_type = topics.first
-      
-      if event_type == Esip1EventSig
-        next if topics.length != 3
-        
-        begin
-          event_to = Eth::Abi.decode(['address'], topics.second).first
-          tx_hash = Eth::Util.bin_to_prefixed_hex(
-            Eth::Abi.decode(['bytes32'], topics.third).first
-          )
-        rescue Eth::Abi::DecodingError
-          next
-        end
-      
-        target_ethscription = Ethscription.find_by(transaction_hash: tx_hash)
-  
-        if target_ethscription.present?
-          potentially_valid = EthscriptionTransfer.new({
-            ethscription: target_ethscription,
-            from_address: log['address'],
-            to_address: event_to,
-            event_log_index: log['logIndex'].to_i(16),
-            transfer_index: transfer_index,
-          }.merge(transfer_attrs))
-          
-          potentially_valid.create_if_valid!
-        end
-      elsif event_type == Esip2EventSig
-        next if topics.length != 4
-        
-        begin
-          event_previous_owner = Eth::Abi.decode(['address'], topics.second).first
-          event_to = Eth::Abi.decode(['address'], topics.third).first
-          tx_hash = Eth::Util.bin_to_prefixed_hex(
-            Eth::Abi.decode(['bytes32'], topics.fourth).first
-          )
-        rescue Eth::Abi::DecodingError
-          next
-        end
-        
-        target_ethscription = Ethscription.find_by(transaction_hash: tx_hash)
-  
-        if target_ethscription.present?
-          potentially_valid = EthscriptionTransfer.new({
-            ethscription: target_ethscription,
-            from_address: log['address'],
-            to_address: event_to,
-            event_log_index: log['logIndex'].to_i(16),
-            transfer_index: transfer_index,
-            enforced_previous_owner: event_previous_owner,
-          }.merge(transfer_attrs))
-          
-          potentially_valid.create_if_valid!
-        end
-      end
-    end
-  end
+  # Now handled by EvmEthscriptionProcessor module
+  # def create_ethscription_transfers_from_input!
+  # def create_ethscription_transfers_from_events!
   
   def transfers_ethscription_via_input?
     valid_length = if EthTransaction.esip5_enabled?(block_number)
