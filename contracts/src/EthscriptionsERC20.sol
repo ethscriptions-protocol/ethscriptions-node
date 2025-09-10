@@ -4,9 +4,13 @@ pragma solidity ^0.8.20;
 import "openzeppelin-contracts-upgradeable/contracts/token/ERC20/ERC20Upgradeable.sol";
 import "openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/ERC20CappedUpgradeable.sol";
 import "openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
+import "./SystemAddresses.sol";
+import "./EthscriptionsProver.sol";
 
 contract EthscriptionsERC20 is Initializable, ERC20Upgradeable, ERC20CappedUpgradeable {
-    address public tokenManager;
+    address public constant tokenManager = SystemAddresses.TOKEN_MANAGER;
+    bytes32 public deployTxHash; // The ethscription hash that deployed this token
+    EthscriptionsProver public constant prover = EthscriptionsProver(SystemAddresses.PROVER);
     
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -17,11 +21,11 @@ contract EthscriptionsERC20 is Initializable, ERC20Upgradeable, ERC20CappedUpgra
         string memory name_,
         string memory symbol_,
         uint256 cap_,
-        address tokenManager_
+        bytes32 deployTxHash_
     ) public initializer {
         __ERC20_init(name_, symbol_);
         __ERC20Capped_init(cap_);
-        tokenManager = tokenManager_;
+        deployTxHash = deployTxHash_;
     }
     
     modifier onlyTokenManager() {
@@ -67,5 +71,16 @@ contract EthscriptionsERC20 is Initializable, ERC20Upgradeable, ERC20CappedUpgra
         override(ERC20Upgradeable, ERC20CappedUpgradeable) 
     {
         super._update(from, to, value);
+        
+        // Automatically prove token balances after any update including burns
+        // For transfers: prove both from and to
+        // For mints (from == address(0)): only prove to
+        // For burns (to == address(0)): only prove from
+        if (from != address(0)) {
+            prover.proveTokenBalance(from, deployTxHash);
+        }
+        if (to != address(0)) {
+            prover.proveTokenBalance(to, deployTxHash);
+        }
     }
 }

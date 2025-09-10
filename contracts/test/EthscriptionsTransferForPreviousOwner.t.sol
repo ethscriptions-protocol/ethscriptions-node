@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/Ethscriptions.sol";
+import "./TestSetup.sol";
 
-contract EthscriptionsTransferForPreviousOwnerTest is Test {
+contract EthscriptionsTransferForPreviousOwnerTest is TestSetup {
     Ethscriptions public eth;
     
-    function setUp() public {
-        eth = new Ethscriptions("Ethscriptions", "ETSC");
+    function setUp() public override {
+        super.setUp();
+        eth = ethscriptions;
     }
     
     function test_TransferForPreviousOwner() public {
@@ -112,7 +112,8 @@ contract EthscriptionsTransferForPreviousOwnerTest is Test {
         console.log("transferEthscriptionForPreviousOwner gas:", gasUsed);
         
         // Should be slightly more than regular transfer due to extra validation
+        // Now includes automatic proof generation in _update
         assertGt(gasUsed, 25000);
-        assertLt(gasUsed, 50000);
+        assertLt(gasUsed, 100000);
     }
 }

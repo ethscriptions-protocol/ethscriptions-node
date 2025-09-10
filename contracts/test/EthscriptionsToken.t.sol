@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../src/Ethscriptions.sol";
-import "../src/TokenManager.sol";
-import "../src/EthscriptionsERC20.sol";
-import "openzeppelin-contracts-upgradeable/contracts/token/ERC20/extensions/ERC20CappedUpgradeable.sol";
+import "./TestSetup.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20CappedUpgradeable.sol";
 
-contract EthscriptionsTokenTest is Test {
-    Ethscriptions public ethscriptions;
-    TokenManager public tokenManager;
-    
+contract EthscriptionsTokenTest is TestSetup {
     address alice = address(0x1);
     address bob = address(0x2);
     address charlie = address(0x3);
@@ -19,9 +13,8 @@ contract EthscriptionsTokenTest is Test {
     bytes32 constant MINT_TX_HASH_1 = bytes32(uint256(0x5678));
     bytes32 constant MINT_TX_HASH_2 = bytes32(uint256(0x9ABC));
     
-    function setUp() public {
-        ethscriptions = new Ethscriptions("Ethscriptions", "ETSC");
-        tokenManager = ethscriptions.tokenManager();
+    function setUp() public override {
+        super.setUp();
     }
     
     function testTokenDeploy() public {

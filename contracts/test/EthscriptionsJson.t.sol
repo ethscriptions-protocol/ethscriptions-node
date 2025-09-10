@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import "./TestSetup.sol";
 import "forge-std/StdJson.sol";
-import "../src/Ethscriptions.sol";
 
-contract EthscriptionsJsonTest is Test {
+contract EthscriptionsJsonTest is TestSetup {
     using stdJson for string;
 
     Ethscriptions internal eth;
 
-    function setUp() public {
-        eth = new Ethscriptions("Ethscriptions", "ESCR");
+    function setUp() public override {
+        super.setUp();
+        eth = ethscriptions;
     }
 
     function test_CreateAndTokenURIGas_FromJson() public {

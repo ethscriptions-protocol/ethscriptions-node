@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {SSTORE2} from "solady/src/utils/SSTORE2.sol";
 import "./TokenManager.sol";
+import "./EthscriptionsProver.sol";
+import "./SystemAddresses.sol";
 
 /// @title Ethscriptions ERC-721 Contract
 /// @notice Mints Ethscriptions as ERC-721 tokens based on L1 transaction data
@@ -53,8 +55,11 @@ contract Ethscriptions is ERC721 {
     /// @dev Total number of ethscriptions created
     uint256 public totalEthscriptions;
     
-    /// @dev Token Manager contract
-    TokenManager public tokenManager;
+    /// @dev Token Manager contract (pre-deployed at known address)
+    TokenManager public constant tokenManager = TokenManager(SystemAddresses.TOKEN_MANAGER);
+    
+    /// @dev Ethscriptions Prover contract (pre-deployed at known address)
+    EthscriptionsProver public constant prover = EthscriptionsProver(SystemAddresses.PROVER);
     
     /// @notice Emitted when a new ethscription is created
     event EthscriptionCreated(
@@ -73,11 +78,17 @@ contract Ethscriptions is ERC721 {
     error EthscriptionAlreadyExists();
     error EthscriptionDoesNotExist();
 
-    constructor(string memory name_, string memory symbol_) 
-        ERC721(name_, symbol_) 
-    {
-        // Deploy TokenManager with this contract as authorized caller
-        tokenManager = new TokenManager(address(this));
+    // Constructor passes empty strings to ERC721 since we'll override name() and symbol()
+    constructor() ERC721("", "") {}
+    
+    // Override name and symbol to return the correct values
+    // These would be set in genesis state
+    function name() public pure override returns (string memory) {
+        return "Ethscriptions";
+    }
+    
+    function symbol() public pure override returns (string memory) {
+        return "ETHSCRIPTIONS";
     }
 
     /// @notice Create (mint) a new ethscription token
@@ -199,15 +210,17 @@ contract Ethscriptions is ERC721 {
     /// @dev Override _update to track previous owner and handle token transfers
     function _update(address to, uint256 tokenId, address auth) internal virtual override returns (address) {
         address from = _ownerOf(tokenId);
+        bytes32 txHash = bytes32(tokenId);
         
         // Update previous owner if this is a transfer (not mint)
         if (from != address(0)) {
-            bytes32 txHash = bytes32(tokenId);
             ethscriptions[txHash].previousOwner = from;
             
             // Let TokenManager handle any token transfers
             tokenManager.handleTokenTransfer(txHash, from, to);
         }
+        
+        prover.proveEthscriptionData(txHash);
         
         // Call parent implementation
         return super._update(to, tokenId, auth);
