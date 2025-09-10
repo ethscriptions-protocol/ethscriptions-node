@@ -10,8 +10,15 @@ module EvmEthscriptionProcessor
     # 2. Has a recipient (required for ethscription creation)
     return unless DataUri.valid?(utf8_input) && to_address.present?
     
+    # Check if this is a token operation
+    token_op = detect_token_operation(utf8_input)
+    
     # Build parameters - just translate what the user provided
-    params = EthscriptionsParamMapper.build_create_params_from_input(self)
+    params = if token_op
+      EthscriptionsParamMapper.build_create_params_from_input(self, token_op)
+    else
+      EthscriptionsParamMapper.build_create_params_from_input(self)
+    end
     
     # Skip if params are malformed (shouldn't happen with valid data URI)
     return unless EthscriptionsParamMapper.params_well_formed?(params, :createEthscription)
@@ -138,6 +145,31 @@ module EvmEthscriptionProcessor
   end
   
   private
+  
+  # Detect if this is a token operation (deploy or mint)
+  def detect_token_operation(content_uri)
+    return nil unless content_uri.start_with?('data:,')
+    
+    begin
+      json_str = content_uri.sub('data:,', '')
+      json = JSON.parse(json_str)
+      
+      # Check if it's a token operation
+      return nil unless json['p'].present? && (json['op'] == 'deploy' || json['op'] == 'mint')
+      
+      {
+        protocol: json['p'],
+        operation: json['op'],
+        tick: json['tick'],
+        max: json['max']&.to_i,
+        lim: json['lim']&.to_i,
+        id: json['id']&.to_i,
+        amt: json['amt']&.to_i
+      }
+    rescue JSON::ParserError
+      nil
+    end
+  end
   
   # Simplified contract call - in production this would use the engine API
   def send_to_ethscriptions_contract(method, params, from_address:)

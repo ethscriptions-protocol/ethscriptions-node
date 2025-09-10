@@ -40,7 +40,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: mimetype,
             mediaType: mediaType,
             mimeSubtype: mimeSubtype,
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         });
 
         vm.startPrank(creator);
@@ -130,7 +138,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: mimetype,
             mediaType: mediaType,
             mimeSubtype: mimeSubtype,
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         });
 
         // Create ethscription
@@ -180,7 +196,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         });
         
         vm.prank(creator);
@@ -229,7 +253,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: "application/octet-stream",
             mediaType: "application",
             mimeSubtype: "octet-stream",
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         }));
         
         // Verify we have exactly 2 chunks
@@ -271,7 +303,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         }));
         
         // Verify we have 2 chunks (24575 + 5450 bytes)
@@ -307,7 +347,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         }));
         
         // Verify single chunk
@@ -333,7 +381,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         }));
     }
     
@@ -350,7 +406,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         }));
         
         // Second ethscription with same content, no ESIP6 - should fail
@@ -364,7 +428,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         }));
         
         // Third ethscription with same content, ESIP6 enabled - should succeed and reuse pointers
@@ -378,7 +450,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            esip6: true
+            esip6: true,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         }));
         uint256 esip6Gas = gasBeforeEsip6 - gasleft();
         
@@ -416,7 +496,15 @@ contract EthscriptionsJsonTest is Test {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            esip6: false
+            esip6: false,
+            tokenParams: Ethscriptions.TokenParams({
+                op: "",
+                protocol: "",
+                tick: "",
+                max: 0,
+                lim: 0,
+                amt: 0
+            })
         });
         
         vm.startPrank(creator);

@@ -28,7 +28,15 @@ contract EthscriptionsTransferForPreviousOwnerTest is Test {
                 mimetype: "text/plain",
                 mediaType: "text",
                 mimeSubtype: "plain",
-                esip6: false
+                esip6: false,
+                tokenParams: Ethscriptions.TokenParams({
+                    op: "",
+                    protocol: "",
+                    tick: "",
+                    max: 0,
+                    lim: 0,
+                    amt: 0
+                })
             })
         );
         
@@ -79,7 +87,15 @@ contract EthscriptionsTransferForPreviousOwnerTest is Test {
                 mimetype: "text/plain",
                 mediaType: "text",
                 mimeSubtype: "plain",
-                esip6: false
+                esip6: false,
+                tokenParams: Ethscriptions.TokenParams({
+                    op: "",
+                    protocol: "",
+                    tick: "",
+                    max: 0,
+                    lim: 0,
+                    amt: 0
+                })
             })
         );
         

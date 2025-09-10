@@ -23,13 +23,31 @@ class EthscriptionsParamMapper
     end
     
     # Build parameters for createEthscription from transaction input
-    def build_create_params_from_input(eth_transaction)
-      build_create_params(
+    def build_create_params_from_input(eth_transaction, token_op = nil)
+      params = build_create_params(
         eth_transaction,
         creator: eth_transaction.from_address,
         initial_owner: eth_transaction.to_address,
         content_uri: eth_transaction.utf8_input
       )
+      
+      # Add token-specific parameters if this is a token operation
+      if token_op
+        params.merge!(build_token_params(eth_transaction, token_op))
+      else
+        # No token operation
+        params.merge!({
+          isTokenOperation: false,
+          tokenOp: "",
+          tokenProtocol: "",
+          tokenTick: "",
+          tokenMax: 0,
+          tokenLim: 0,
+          tokenAmt: 0
+        })
+      end
+      
+      params
     end
     
     # Build parameters for createEthscription from event log
@@ -82,6 +100,31 @@ class EthscriptionsParamMapper
         transaction_hash: eth_transaction.transaction_hash,
         block_timestamp: eth_transaction.block_timestamp
       }
+    end
+    
+    # Build token-specific parameters
+    # @param eth_transaction [EthTransaction] The transaction containing the token operation
+    # @param token_op [Hash] Parsed token operation details
+    # @return [Hash] Token parameters for contract
+    def build_token_params(eth_transaction, token_op)
+      {
+        isTokenOperation: true,
+        tokenOp: token_op[:operation] || "",
+        tokenProtocol: token_op[:protocol] || "",
+        tokenTick: token_op[:tick] || "",
+        tokenMax: token_op[:max] || 0,
+        tokenLim: token_op[:lim] || 0,
+        tokenAmt: token_op[:amt] || 0
+      }
+    end
+    
+    # Compute deploy transaction hash for a token
+    # This is a placeholder - in production would query the chain
+    def compute_deploy_tx_hash(protocol, tick)
+      # For demo purposes, use a deterministic hash based on protocol and tick
+      # In production, this would query the EVM for the actual deploy tx
+      content = "#{protocol}:#{tick}:deploy"
+      "0x" + Digest::SHA256.hexdigest(content)
     end
     
     # Check if parameters are well-formed (not validation, just structure)

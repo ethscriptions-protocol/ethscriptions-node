@@ -8,7 +8,8 @@ optimizer_runs = 200
 via_ir = true
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
-    "solady/=lib/solady/src/"
+    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    "solady/=lib/solady/"
 ]
 
 # Allow tests to read JSON fixtures from the test directory

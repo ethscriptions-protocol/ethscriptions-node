@@ -2,7 +2,8 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import {SSTORE2} from "solady/utils/SSTORE2.sol";
+import {SSTORE2} from "solady/src/utils/SSTORE2.sol";
+import "./TokenManager.sol";
 
 /// @title Ethscriptions ERC-721 Contract
 /// @notice Mints Ethscriptions as ERC-721 tokens based on L1 transaction data
@@ -22,6 +23,15 @@ contract Ethscriptions is ERC721 {
         bool esip6;
     }
     
+    struct TokenParams {
+        string op;        // "deploy" or "mint"
+        string protocol;  
+        string tick;
+        uint256 max;      // max supply for deploy
+        uint256 lim;      // mint limit for deploy
+        uint256 amt;      // amount for mint
+    }
+    
     struct CreateEthscriptionParams {
         bytes32 transactionHash;
         address initialOwner;
@@ -30,6 +40,7 @@ contract Ethscriptions is ERC721 {
         string mediaType;
         string mimeSubtype;
         bool esip6;
+        TokenParams tokenParams;  // Token operation data (optional)
     }
 
     /// @dev Transaction hash => Ethscription data
@@ -41,6 +52,9 @@ contract Ethscriptions is ERC721 {
     
     /// @dev Total number of ethscriptions created
     uint256 public totalEthscriptions;
+    
+    /// @dev Token Manager contract
+    TokenManager public tokenManager;
     
     /// @notice Emitted when a new ethscription is created
     event EthscriptionCreated(
@@ -61,7 +75,10 @@ contract Ethscriptions is ERC721 {
 
     constructor(string memory name_, string memory symbol_) 
         ERC721(name_, symbol_) 
-    {}
+    {
+        // Deploy TokenManager with this contract as authorized caller
+        tokenManager = new TokenManager(address(this));
+    }
 
     /// @notice Create (mint) a new ethscription token
     /// @dev Called via system transaction with msg.sender spoofed as the actual creator
@@ -135,6 +152,14 @@ contract Ethscriptions is ERC721 {
             totalEthscriptions - 1,
             pointers.length
         );
+        
+        // Handle token operations - delegate all logic to TokenManager
+        // No need to check if it's a token operation, handleTokenOperation will check the op
+        tokenManager.handleTokenOperation(
+            params.transactionHash,
+            params.initialOwner,
+            params.tokenParams
+        );
     }
 
     /// @notice Transfer an ethscription
@@ -171,7 +196,7 @@ contract Ethscriptions is ERC721 {
         transferFrom(msg.sender, to, tokenId);
     }
 
-    /// @dev Override _update to track previous owner
+    /// @dev Override _update to track previous owner and handle token transfers
     function _update(address to, uint256 tokenId, address auth) internal virtual override returns (address) {
         address from = _ownerOf(tokenId);
         
@@ -179,6 +204,9 @@ contract Ethscriptions is ERC721 {
         if (from != address(0)) {
             bytes32 txHash = bytes32(tokenId);
             ethscriptions[txHash].previousOwner = from;
+            
+            // Let TokenManager handle any token transfers
+            tokenManager.handleTokenTransfer(txHash, from, to);
         }
         
         // Call parent implementation
