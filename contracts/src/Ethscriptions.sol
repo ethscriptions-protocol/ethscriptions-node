@@ -127,7 +127,7 @@ contract Ethscriptions is ERC721 {
                     end = contentLength;
                 }
                 
-                // Use calldata slicing - no memory copying needed!
+                // Calldata slicing avoids copying to memory here, but SSTORE2.write will copy the chunk to memory before storing.
                 bytes calldata chunk = params.contentUri[start:end];
                 
                 // Store chunk via SSTORE2
