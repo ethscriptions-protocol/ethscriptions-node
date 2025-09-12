@@ -114,9 +114,6 @@ contract Ethscriptions is ERC721Upgradeable {
         // Store content and get content SHA
         bytes32 contentSha = _storeContent(params.contentUri, params.isCompressed, params.esip6);
 
-        // Get L1 block info from L1Block predeploy
-        (uint64 l1BlockNum, bytes32 l1BlockHash) = L1_BLOCK.getL1BlockInfo(block.number);
-
         ethscriptions[params.transactionHash] = Ethscription({
             contentSha: contentSha,
             creator: creator,
@@ -129,9 +126,9 @@ contract Ethscriptions is ERC721Upgradeable {
             esip6: params.esip6,
             isCompressed: params.isCompressed,
             createdAt: block.timestamp,
-            l1BlockNumber: l1BlockNum,
+            l1BlockNumber: L1_BLOCK.number(),
             l2BlockNumber: uint64(block.number),
-            l1BlockHash: l1BlockHash
+            l1BlockHash: L1_BLOCK.hash()
         });
 
         tokenId = uint256(params.transactionHash);
@@ -166,7 +163,7 @@ contract Ethscriptions is ERC721Upgradeable {
 
     /// @notice Transfer an ethscription
     /// @dev Called via system transaction with msg.sender spoofed as 'from'
-    /// @param to The recipient address
+    /// @param to The recipient address (can be address(0) for burning)
     /// @param transactionHash The ethscription to transfer
     function transferEthscription(
         address to,
@@ -177,9 +174,21 @@ contract Ethscriptions is ERC721Upgradeable {
         transferFrom(msg.sender, to, tokenId);
     }
     
+    /// @notice Override transferFrom to allow burns when transferring to address(0)
+    /// @dev Removes the address(0) check to allow burns through transfers
+    function transferFrom(address from, address to, uint256 tokenId) public virtual override {
+        // Removed the check for to == address(0) to allow burns
+        // Setting an "auth" arguments enables the `_isAuthorized` check which verifies that the token exists
+        // (from != 0). Therefore, it is not needed to verify that the return value is not 0 here.
+        address previousOwner = _update(to, tokenId, _msgSender());
+        if (previousOwner != from) {
+            revert ERC721IncorrectOwner(from, tokenId, previousOwner);
+        }
+    }
+    
     /// @notice Transfer an ethscription with previous owner validation (ESIP-2)
     /// @dev Called via system transaction with msg.sender spoofed as 'from'
-    /// @param to The recipient address
+    /// @param to The recipient address (can be address(0) for burning)
     /// @param transactionHash The ethscription to transfer
     /// @param previousOwner The required previous owner for validation
     function transferEthscriptionForPreviousOwner(
@@ -194,7 +203,7 @@ contract Ethscriptions is ERC721Upgradeable {
         );
         
         uint256 tokenId = uint256(transactionHash);
-        // Standard ERC721 transfer will handle current owner authorization
+        // Use transferFrom which now handles burns when to == address(0)
         transferFrom(msg.sender, to, tokenId);
     }
 

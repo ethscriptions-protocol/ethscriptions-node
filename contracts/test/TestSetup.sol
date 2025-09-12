@@ -7,6 +7,7 @@ import "../src/TokenManager.sol";
 import "../src/EthscriptionsProver.sol";
 import "../src/EthscriptionsERC20.sol";
 import "../src/L2/L2ToL1MessagePasser.sol";
+import "../src/L2/L1Block.sol";
 import "../src/libraries/Predeploys.sol";
 
 /// @title TestSetup
@@ -15,6 +16,7 @@ abstract contract TestSetup is Test {
     Ethscriptions public ethscriptions;
     TokenManager public tokenManager;
     EthscriptionsProver public prover;
+    L1Block public l1Block;
     
     function setUp() public virtual {
         // Deploy all system contracts to temporary addresses first
@@ -23,6 +25,7 @@ abstract contract TestSetup is Test {
         EthscriptionsProver tempProver = new EthscriptionsProver();
         EthscriptionsERC20 tempERC20Template = new EthscriptionsERC20();
         L2ToL1MessagePasser tempMessagePasser = new L2ToL1MessagePasser();
+        L1Block tempL1Block = new L1Block();
         
         // Etch them at their known addresses
         vm.etch(Predeploys.ETHSCRIPTIONS, address(tempEthscriptions).code);
@@ -30,6 +33,7 @@ abstract contract TestSetup is Test {
         vm.etch(Predeploys.ETHSCRIPTIONS_PROVER, address(tempProver).code);
         vm.etch(Predeploys.ERC20_TEMPLATE, address(tempERC20Template).code);
         vm.etch(Predeploys.L2_TO_L1_MESSAGE_PASSER, address(tempMessagePasser).code);
+        vm.etch(Predeploys.L1_BLOCK_ATTRIBUTES, address(tempL1Block).code);
         
         // Initialize name and symbol for Ethscriptions contract
         // This would normally be done in genesis state
