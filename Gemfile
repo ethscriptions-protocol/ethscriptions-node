@@ -6,7 +6,7 @@ ruby "3.2.2"
 gem "rails", "~> 7.1.2"
 
 # Use postgresql as the database for Active Record
-gem "pg", "~> 1.1"
+gem "pg", "1.6.2"
 
 # Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
@@ -47,6 +47,9 @@ end
 gem "dotenv-rails", "~> 2.8", groups: [:development, :test]
 
 gem "httpparty", "~> 0.2.0"
+
+# For Ethscription content compression
+gem "fastlz", "~> 0.1.0"
 
 gem "clockwork", "~> 3.0"
 

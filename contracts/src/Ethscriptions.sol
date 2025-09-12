@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {SSTORE2} from "solady/src/utils/SSTORE2.sol";
+import {LibZip} from "solady/src/utils/LibZip.sol";
 import "./TokenManager.sol";
 import "./EthscriptionsProver.sol";
 import "./SystemAddresses.sol";
@@ -23,6 +24,7 @@ contract Ethscriptions is ERC721 {
         string mediaType;
         string mimeSubtype;
         bool esip6;
+        bool isCompressed;  // True if content is FastLZ compressed
     }
     
     struct TokenParams {
@@ -42,6 +44,7 @@ contract Ethscriptions is ERC721 {
         string mediaType;
         string mimeSubtype;
         bool esip6;
+        bool isCompressed;  // True if contentUri is FastLZ compressed
         TokenParams tokenParams;  // Token operation data (optional)
     }
 
@@ -104,8 +107,13 @@ contract Ethscriptions is ERC721 {
         if (params.contentUri.length == 0) revert EmptyContentUri();
         if (ethscriptions[params.transactionHash].creator != address(0)) revert EthscriptionAlreadyExists();
 
-        // Compute SHA on-chain
-        bytes32 contentSha = sha256(params.contentUri);
+        // If compressed, decompress to compute SHA of original content
+        bytes memory actualContent = params.isCompressed 
+            ? LibZip.flzDecompress(params.contentUri)
+            : params.contentUri;
+        
+        // Compute SHA of original (decompressed) content
+        bytes32 contentSha = sha256(actualContent);
         
         // Check if content already exists
         address[] storage pointers = _contentBySha[contentSha];
@@ -146,7 +154,8 @@ contract Ethscriptions is ERC721 {
             mimetype: params.mimetype,
             mediaType: params.mediaType,
             mimeSubtype: params.mimeSubtype,
-            esip6: params.esip6
+            esip6: params.esip6,
+            isCompressed: params.isCompressed
         });
 
         tokenId = uint256(params.transactionHash);
@@ -244,7 +253,12 @@ contract Ethscriptions is ERC721 {
         
         if (pointers.length == 1) {
             // Single pointer - simple read
-            return string(SSTORE2.read(pointers[0]));
+            bytes memory content = SSTORE2.read(pointers[0]);
+            // Decompress if needed
+            if (etsc.isCompressed) {
+                content = LibZip.flzDecompress(content);
+            }
+            return string(content);
         }
         
         // Multiple pointers - efficient assembly concatenation
@@ -280,6 +294,10 @@ contract Ethscriptions is ERC721 {
             mstore(0x40, and(add(add(resultPtr, totalSize), 0x1f), not(0x1f)))
         }
         
+        // Decompress if needed
+        if (etsc.isCompressed) {
+            result = LibZip.flzDecompress(result);
+        }
         return string(result);
     }
 

@@ -31,6 +31,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "deploy",
                 protocol: "erc-20",
@@ -74,6 +75,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
@@ -136,6 +138,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
@@ -157,6 +160,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
@@ -191,6 +195,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "deploy",
                 protocol: "erc-20",
@@ -211,6 +216,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
@@ -230,6 +236,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
@@ -251,6 +258,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
@@ -305,6 +313,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
@@ -335,6 +344,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "deploy",
                 protocol: "erc-20",

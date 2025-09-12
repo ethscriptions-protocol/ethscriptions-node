@@ -29,6 +29,7 @@ contract EthscriptionsTransferForPreviousOwnerTest is TestSetup {
                 mediaType: "text",
                 mimeSubtype: "plain",
                 esip6: false,
+                isCompressed: false,
                 tokenParams: Ethscriptions.TokenParams({
                     op: "",
                     protocol: "",
@@ -88,6 +89,7 @@ contract EthscriptionsTransferForPreviousOwnerTest is TestSetup {
                 mediaType: "text",
                 mimeSubtype: "plain",
                 esip6: false,
+                isCompressed: false,
                 tokenParams: Ethscriptions.TokenParams({
                     op: "",
                     protocol: "",

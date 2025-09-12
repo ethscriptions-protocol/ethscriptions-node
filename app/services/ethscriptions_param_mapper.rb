@@ -11,14 +11,23 @@ class EthscriptionsParamMapper
       # Parse data URI to extract metadata
       parsed_uri = parse_data_uri(content_uri)
       
+      # Try compression if appropriate  
+      # Note: content_uri is already a binary string from utf8_input
+      compressed_uri, is_compressed = compress_if_beneficial(content_uri)
+      
+      if is_compressed
+        Rails.logger.info("Compressed content from #{content_uri.bytesize} to #{compressed_uri.bytesize} bytes (#{(100.0 * compressed_uri.bytesize / content_uri.bytesize).round(1)}%)")
+      end
+      
       {
         transactionHash: eth_transaction.transaction_hash,
         initialOwner: initial_owner.downcase,
-        contentUri: content_uri.force_encoding('BINARY'), # Send as bytes
+        contentUri: compressed_uri, # Send as bytes
         mimetype: parsed_uri[:mimetype],
         mediaType: parsed_uri[:media_type],
         mimeSubtype: parsed_uri[:mime_subtype],
-        esip6: parsed_uri[:esip6]
+        esip6: parsed_uri[:esip6],
+        isCompressed: is_compressed
       }
     end
     
@@ -37,7 +46,6 @@ class EthscriptionsParamMapper
       else
         # No token operation
         params.merge!({
-          isTokenOperation: false,
           tokenOp: "",
           tokenProtocol: "",
           tokenTick: "",
@@ -152,6 +160,25 @@ class EthscriptionsParamMapper
     end
     
     private
+    
+    # Compress data if it achieves meaningful reduction
+    # Returns [compressed_data, is_compressed] tuple
+    def compress_if_beneficial(data)
+      # TODO: Implement compression
+      [data, false]
+      
+      # return [data, false] if data.nil? || data.empty?
+      # return [data, false] if data.bytesize < 100  # Don't compress small data
+      
+      # compressed = FastLZ.compress(data)
+        
+      # # Only use compressed if it's at least 10% smaller
+      # if compressed.bytesize < (data.bytesize * Rational(9, 10))
+      #   [compressed, true]
+      # else
+      #   [data, false]
+      # end
+    end
     
     def parse_data_uri(content_uri)
       return empty_metadata unless DataUri.valid?(content_uri)

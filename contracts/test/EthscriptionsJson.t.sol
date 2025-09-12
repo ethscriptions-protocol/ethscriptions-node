@@ -41,6 +41,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: mediaType,
             mimeSubtype: mimeSubtype,
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -139,6 +140,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: mediaType,
             mimeSubtype: mimeSubtype,
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -197,6 +199,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -254,6 +257,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: "application",
             mimeSubtype: "octet-stream",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -304,6 +308,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -348,6 +353,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -382,6 +388,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -407,6 +414,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -429,6 +437,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -451,6 +460,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: true,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
@@ -497,6 +507,7 @@ contract EthscriptionsJsonTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
+            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",
                 protocol: "",
