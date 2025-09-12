@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import "./EthscriptionsERC20.sol";
 import "./Ethscriptions.sol";
-import "./SystemAddresses.sol";
+import "./libraries/Predeploys.sol";
 
 contract TokenManager {
     using Clones for address;
@@ -26,8 +26,8 @@ contract TokenManager {
         uint256 amount;        // How many tokens this ethscription represents
     }
 
-    address public constant erc20Template = SystemAddresses.ERC20_TEMPLATE;
-    address public constant ethscriptions = SystemAddresses.ETHSCRIPTIONS;
+    address public constant erc20Template = Predeploys.ERC20_TEMPLATE;
+    address public constant ethscriptions = Predeploys.ETHSCRIPTIONS;
     
     // Track deployed tokens by protocol+tick for find-or-create
     mapping(bytes32 => TokenInfo) public tokensByTick;  // keccak256(abi.encode(protocol, tick)) => TokenInfo
@@ -67,8 +67,6 @@ contract TokenManager {
     function _getTickKey(string memory protocol, string memory tick) private pure returns (bytes32) {
         return keccak256(abi.encode(protocol, tick));
     }
-
-    // No constructor needed - contract is pre-deployed at genesis
 
     /// @notice Handle token operation from Ethscriptions contract
     /// @dev Implements find-or-create pattern for deploy, direct mint for mint operations

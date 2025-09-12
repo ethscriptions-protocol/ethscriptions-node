@@ -6,8 +6,8 @@ import "../src/Ethscriptions.sol";
 import "../src/TokenManager.sol";
 import "../src/EthscriptionsProver.sol";
 import "../src/EthscriptionsERC20.sol";
-import "../src/mocks/MockL2ToL1MessagePasser.sol";
-import "../src/SystemAddresses.sol";
+import "../src/L2/L2ToL1MessagePasser.sol";
+import "../src/libraries/Predeploys.sol";
 
 /// @title TestSetup
 /// @notice Base test contract that pre-deploys all system contracts at their known addresses
@@ -22,22 +22,22 @@ abstract contract TestSetup is Test {
         TokenManager tempTokenManager = new TokenManager();
         EthscriptionsProver tempProver = new EthscriptionsProver();
         EthscriptionsERC20 tempERC20Template = new EthscriptionsERC20();
-        MockL2ToL1MessagePasser tempMessagePasser = new MockL2ToL1MessagePasser();
+        L2ToL1MessagePasser tempMessagePasser = new L2ToL1MessagePasser();
         
         // Etch them at their known addresses
-        vm.etch(SystemAddresses.ETHSCRIPTIONS, address(tempEthscriptions).code);
-        vm.etch(SystemAddresses.TOKEN_MANAGER, address(tempTokenManager).code);
-        vm.etch(SystemAddresses.PROVER, address(tempProver).code);
-        vm.etch(SystemAddresses.ERC20_TEMPLATE, address(tempERC20Template).code);
-        vm.etch(SystemAddresses.L2_TO_L1_MESSAGE_PASSER, address(tempMessagePasser).code);
+        vm.etch(Predeploys.ETHSCRIPTIONS, address(tempEthscriptions).code);
+        vm.etch(Predeploys.TOKEN_MANAGER, address(tempTokenManager).code);
+        vm.etch(Predeploys.ETHSCRIPTIONS_PROVER, address(tempProver).code);
+        vm.etch(Predeploys.ERC20_TEMPLATE, address(tempERC20Template).code);
+        vm.etch(Predeploys.L2_TO_L1_MESSAGE_PASSER, address(tempMessagePasser).code);
         
         // Initialize name and symbol for Ethscriptions contract
         // This would normally be done in genesis state
-        ethscriptions = Ethscriptions(SystemAddresses.ETHSCRIPTIONS);
+        ethscriptions = Ethscriptions(Predeploys.ETHSCRIPTIONS);
         
         // Store contract references for tests
-        tokenManager = TokenManager(SystemAddresses.TOKEN_MANAGER);
-        prover = EthscriptionsProver(SystemAddresses.PROVER);
+        tokenManager = TokenManager(Predeploys.TOKEN_MANAGER);
+        prover = EthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER);
         
         // ERC20 template doesn't need initialization - it's just a template for cloning
     }

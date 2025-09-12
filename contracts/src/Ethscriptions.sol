@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import {SSTORE2} from "solady/utils/SSTORE2.sol";
 import {LibZip} from "solady/utils/LibZip.sol";
 import "./TokenManager.sol";
 import "./EthscriptionsProver.sol";
-import "./SystemAddresses.sol";
+import "./libraries/Predeploys.sol";
 
 /// @title Ethscriptions ERC-721 Contract
 /// @notice Mints Ethscriptions as ERC-721 tokens based on L1 transaction data
 /// @dev Uses transaction hash as token ID to maintain consistency with existing system
-contract Ethscriptions is ERC721 {
+contract Ethscriptions is ERC721Upgradeable {
     /// @dev Maximum chunk size for SSTORE2 (24KB - 1 byte for STOP opcode)
     uint256 private constant CHUNK_SIZE = 24575;
     struct Ethscription {
@@ -59,10 +59,10 @@ contract Ethscriptions is ERC721 {
     uint256 public totalEthscriptions;
     
     /// @dev Token Manager contract (pre-deployed at known address)
-    TokenManager public constant tokenManager = TokenManager(SystemAddresses.TOKEN_MANAGER);
+    TokenManager public constant tokenManager = TokenManager(Predeploys.TOKEN_MANAGER);
     
     /// @dev Ethscriptions Prover contract (pre-deployed at known address)
-    EthscriptionsProver public constant prover = EthscriptionsProver(SystemAddresses.PROVER);
+    EthscriptionsProver public constant prover = EthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER);
     
     /// @notice Emitted when a new ethscription is created
     event EthscriptionCreated(
@@ -80,12 +80,7 @@ contract Ethscriptions is ERC721 {
     error EmptyContentUri();
     error EthscriptionAlreadyExists();
     error EthscriptionDoesNotExist();
-
-    // Constructor passes empty strings to ERC721 since we'll override name() and symbol()
-    constructor() ERC721("", "") {}
     
-    // Override name and symbol to return the correct values
-    // These would be set in genesis state
     function name() public pure override returns (string memory) {
         return "Ethscriptions";
     }

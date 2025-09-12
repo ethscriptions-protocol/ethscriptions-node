@@ -3,19 +3,14 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20CappedUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "./SystemAddresses.sol";
+import "./libraries/Predeploys.sol";
 import "./EthscriptionsProver.sol";
 
-contract EthscriptionsERC20 is Initializable, ERC20Upgradeable, ERC20CappedUpgradeable {
-    address public constant tokenManager = SystemAddresses.TOKEN_MANAGER;
-    bytes32 public deployTxHash; // The ethscription hash that deployed this token
-    EthscriptionsProver public constant prover = EthscriptionsProver(SystemAddresses.PROVER);
+contract EthscriptionsERC20 is ERC20Upgradeable, ERC20CappedUpgradeable {
+    address public constant tokenManager = Predeploys.TOKEN_MANAGER;
+    EthscriptionsProver public constant prover = EthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER);
     
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
+    bytes32 public deployTxHash; // The ethscription hash that deployed this token
     
     function initialize(
         string memory name_,

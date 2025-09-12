@@ -4,22 +4,22 @@ pragma solidity ^0.8.24;
 import "./Ethscriptions.sol";
 import "./TokenManager.sol";
 import "./EthscriptionsERC20.sol";
-import "./mocks/MockL2ToL1MessagePasser.sol";
-import "./SystemAddresses.sol";
+import "./L2/L2ToL1MessagePasser.sol";
+import "./libraries/Predeploys.sol";
 
 /// @title EthscriptionsProver
 /// @notice Proves Ethscription ownership and token balances to L1 via OP Stack
 /// @dev Uses L2ToL1MessagePasser to send provable messages to L1
 contract EthscriptionsProver {
     /// @notice L2ToL1MessagePasser predeploy address on OP Stack
-    MockL2ToL1MessagePasser constant L2_TO_L1_MESSAGE_PASSER = 
-        MockL2ToL1MessagePasser(SystemAddresses.L2_TO_L1_MESSAGE_PASSER);
+    L2ToL1MessagePasser constant L2_TO_L1_MESSAGE_PASSER = 
+        L2ToL1MessagePasser(Predeploys.L2_TO_L1_MESSAGE_PASSER);
     
     /// @notice The Ethscriptions contract (pre-deployed at known address)
-    Ethscriptions public constant ethscriptions = Ethscriptions(SystemAddresses.ETHSCRIPTIONS);
+    Ethscriptions public constant ethscriptions = Ethscriptions(Predeploys.ETHSCRIPTIONS);
     
     /// @notice The TokenManager contract (pre-deployed at known address)
-    TokenManager public constant tokenManager = TokenManager(SystemAddresses.TOKEN_MANAGER);
+    TokenManager public constant tokenManager = TokenManager(Predeploys.TOKEN_MANAGER);
     
     /// @notice Struct for token balance proof data
     struct TokenBalanceProof {
@@ -60,8 +60,6 @@ contract EthscriptionsProver {
         uint256 indexed l2BlockNumber,
         uint256 l2Timestamp
     );
-    
-    // No constructor needed - contract is pre-deployed at genesis
     
     /// @notice Prove token balance for an address
     /// @param holder The address to prove balance for
