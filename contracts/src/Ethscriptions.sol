@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import {SSTORE2} from "solady/src/utils/SSTORE2.sol";
-import {LibZip} from "solady/src/utils/LibZip.sol";
+import {SSTORE2} from "solady/utils/SSTORE2.sol";
+import {LibZip} from "solady/utils/LibZip.sol";
 import "./TokenManager.sol";
 import "./EthscriptionsProver.sol";
 import "./SystemAddresses.sol";

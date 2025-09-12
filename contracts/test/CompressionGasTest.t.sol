@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import "lib/solady/src/utils/LibZip.sol";
-import "lib/solady/src/utils/SSTORE2.sol";
+import "solady/utils/LibZip.sol";
+import "solady/utils/SSTORE2.sol";
 
 contract CompressionGasTest is Test {
     using LibZip for bytes;

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "./TestSetup.sol";
-import {LibZip} from "solady/src/utils/LibZip.sol";
-import {LibString} from "solady/src/utils/LibString.sol";
+import {LibZip} from "solady/utils/LibZip.sol";
+import {LibString} from "solady/utils/LibString.sol";
 import "forge-std/console.sol";
 
 contract EndToEndCompressionTest is TestSetup {

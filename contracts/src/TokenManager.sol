@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/proxy/Clones.sol";
-import {LibString} from "solady/src/utils/LibString.sol";
+import {LibString} from "solady/utils/LibString.sol";
 import "./EthscriptionsERC20.sol";
 import "./Ethscriptions.sol";
 import "./SystemAddresses.sol";

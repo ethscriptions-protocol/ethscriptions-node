@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "./TestSetup.sol";
-import {LibZip} from "solady/src/utils/LibZip.sol";
+import {LibZip} from "solady/utils/LibZip.sol";
 import "forge-std/console.sol";
 
 contract EthscriptionsCompressionTest is TestSetup {

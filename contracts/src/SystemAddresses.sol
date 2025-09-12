@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 /// @title SystemAddresses
 /// @notice Defines the pre-deployed addresses for all system contracts

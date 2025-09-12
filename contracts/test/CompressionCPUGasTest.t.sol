@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import "lib/solady/src/utils/LibZip.sol";
+import "solady/utils/LibZip.sol";
 import "forge-std/console.sol";
 
 contract CompressionCPUGasTest is Test {
