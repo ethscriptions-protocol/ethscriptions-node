@@ -7,6 +7,7 @@ import {LibZip} from "solady/utils/LibZip.sol";
 import "./TokenManager.sol";
 import "./EthscriptionsProver.sol";
 import "./libraries/Predeploys.sol";
+import "./L2/L1Block.sol";
 
 /// @title Ethscriptions ERC-721 Contract
 /// @notice Mints Ethscriptions as ERC-721 tokens based on L1 transaction data
@@ -14,6 +15,10 @@ import "./libraries/Predeploys.sol";
 contract Ethscriptions is ERC721Upgradeable {
     /// @dev Maximum chunk size for SSTORE2 (24KB - 1 byte for STOP opcode)
     uint256 private constant CHUNK_SIZE = 24575;
+    
+    /// @dev L1Block predeploy for getting L1 block info
+    L1Block constant L1_BLOCK = L1Block(Predeploys.L1_BLOCK_ATTRIBUTES);
+    
     struct Ethscription {
         bytes32 contentSha;
         address creator;
@@ -25,6 +30,11 @@ contract Ethscriptions is ERC721Upgradeable {
         string mimeSubtype;
         bool esip6;
         bool isCompressed;  // True if content is FastLZ compressed
+        // New fields for block tracking
+        uint256 createdAt;      // Timestamp when created
+        uint64 l1BlockNumber;   // L1 block number when created
+        uint64 l2BlockNumber;   // L2 block number when created  
+        bytes32 l1BlockHash;    // L1 block hash when created
     }
     
     struct TokenParams {
@@ -76,7 +86,6 @@ contract Ethscriptions is ERC721Upgradeable {
 
     error DuplicateContent();
     error InvalidCreator();
-    error InvalidInitialOwner();
     error EmptyContentUri();
     error EthscriptionAlreadyExists();
     error EthscriptionDoesNotExist();
@@ -98,47 +107,15 @@ contract Ethscriptions is ERC721Upgradeable {
         address creator = msg.sender;
         
         if (creator == address(0)) revert InvalidCreator();
-        if (params.initialOwner == address(0)) revert InvalidInitialOwner();
+        // Allow address(0) as initial owner for burned ethscriptions
         if (params.contentUri.length == 0) revert EmptyContentUri();
         if (ethscriptions[params.transactionHash].creator != address(0)) revert EthscriptionAlreadyExists();
 
-        // If compressed, decompress to compute SHA of original content
-        bytes memory actualContent = params.isCompressed 
-            ? LibZip.flzDecompress(params.contentUri)
-            : params.contentUri;
-        
-        // Compute SHA of original (decompressed) content
-        bytes32 contentSha = sha256(actualContent);
-        
-        // Check if content already exists
-        address[] storage pointers = _contentBySha[contentSha];
-        uint256 existingLength = pointers.length;
-        
-        if (existingLength > 0 && !params.esip6) {
-            revert DuplicateContent();
-        }
-        
-        if (existingLength == 0) {
-            // New content: chunk and store via SSTORE2
-            uint256 contentLength = params.contentUri.length;
-            uint256 numChunks = (contentLength + CHUNK_SIZE - 1) / CHUNK_SIZE;
-            
-            for (uint256 i = 0; i < numChunks; i++) {
-                uint256 start = i * CHUNK_SIZE;
-                uint256 end = start + CHUNK_SIZE;
-                if (end > contentLength) {
-                    end = contentLength;
-                }
-                
-                // Calldata slicing avoids copying to memory here, but SSTORE2.write will copy the chunk to memory before storing.
-                bytes calldata chunk = params.contentUri[start:end];
-                
-                // Store chunk via SSTORE2
-                address pointer = SSTORE2.write(chunk);
-                pointers.push(pointer);
-            }
-        }
-        // For ESIP6 with existing content, pointers already contains the addresses
+        // Store content and get content SHA
+        bytes32 contentSha = _storeContent(params.contentUri, params.isCompressed, params.esip6);
+
+        // Get L1 block info from L1Block predeploy
+        (uint64 l1BlockNum, bytes32 l1BlockHash) = L1_BLOCK.getL1BlockInfo(block.number);
 
         ethscriptions[params.transactionHash] = Ethscription({
             contentSha: contentSha,
@@ -150,14 +127,24 @@ contract Ethscriptions is ERC721Upgradeable {
             mediaType: params.mediaType,
             mimeSubtype: params.mimeSubtype,
             esip6: params.esip6,
-            isCompressed: params.isCompressed
+            isCompressed: params.isCompressed,
+            createdAt: block.timestamp,
+            l1BlockNumber: l1BlockNum,
+            l2BlockNumber: uint64(block.number),
+            l1BlockHash: l1BlockHash
         });
 
         tokenId = uint256(params.transactionHash);
         
         totalEthscriptions++;
 
-        _mint(params.initialOwner, tokenId);
+        // If initial owner is zero (burned), mint to creator then burn
+        if (params.initialOwner == address(0)) {
+            _mint(creator, tokenId);
+            _burn(tokenId);
+        } else {
+            _mint(params.initialOwner, tokenId);
+        }
 
         emit EthscriptionCreated(
             params.transactionHash,
@@ -165,7 +152,7 @@ contract Ethscriptions is ERC721Upgradeable {
             params.initialOwner,
             contentSha,
             totalEthscriptions - 1,
-            pointers.length
+            _contentBySha[contentSha].length
         );
         
         // Handle token operations - delegate all logic to TokenManager
@@ -328,5 +315,54 @@ contract Ethscriptions is ERC721Upgradeable {
         address[] memory pointers = _contentBySha[etsc.contentSha];
         require(index < pointers.length, "Chunk index out of bounds");
         return SSTORE2.read(pointers[index]);
+    }
+    
+    /// @notice Internal helper to store content and return its SHA
+    /// @param contentUri The content to store
+    /// @param isCompressed Whether the content is compressed
+    /// @param esip6 Whether this is an ESIP6 ethscription
+    /// @return contentSha The SHA256 hash of the content
+    function _storeContent(
+        bytes calldata contentUri,
+        bool isCompressed,
+        bool esip6
+    ) internal returns (bytes32 contentSha) {
+        // If compressed, decompress to compute SHA of original content
+        bytes memory actualContent = isCompressed 
+            ? LibZip.flzDecompress(contentUri)
+            : contentUri;
+        
+        // Compute SHA of original (decompressed) content
+        contentSha = sha256(actualContent);
+        
+        // Check if content already exists
+        address[] storage pointers = _contentBySha[contentSha];
+        uint256 existingLength = pointers.length;
+        
+        if (existingLength > 0 && !esip6) {
+            revert DuplicateContent();
+        }
+        
+        if (existingLength == 0) {
+            // New content: chunk and store via SSTORE2
+            uint256 contentLength = contentUri.length;
+            uint256 numChunks = (contentLength + CHUNK_SIZE - 1) / CHUNK_SIZE;
+            
+            for (uint256 i = 0; i < numChunks; i++) {
+                uint256 start = i * CHUNK_SIZE;
+                uint256 end = start + CHUNK_SIZE;
+                if (end > contentLength) {
+                    end = contentLength;
+                }
+                
+                // Calldata slicing avoids copying to memory here, but SSTORE2.write will copy the chunk to memory before storing.
+                bytes calldata chunk = contentUri[start:end];
+                
+                // Store chunk via SSTORE2
+                address pointer = SSTORE2.write(chunk);
+                pointers.push(pointer);
+            }
+        }
+        // For ESIP6 with existing content, pointers already contains the addresses
     }
 }

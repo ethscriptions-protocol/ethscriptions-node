@@ -51,6 +51,40 @@ contract L1Block {
     /// @notice The latest L1 blob base fee.
     uint256 public blobBaseFee;
 
+    mapping(uint256 => L1BlockInfo) public l2ToL1BlockMapping;
+
+    struct L1BlockInfo {
+        uint64 l1BlockNumber;
+        bytes32 l1BlockHash;
+    }
+
+    /// @notice Store current L1 block info for the current L2 block
+    /// @dev For now, anyone can call this (will be restricted later)
+    function setL1BlockInfoForCurrentBlock() external {
+        L1BlockInfo storage s = l2ToL1BlockMapping[block.number];
+        
+        if (s.l1BlockNumber != 0) {
+            s.l1BlockNumber = number;
+            s.l1BlockHash = hash;
+        }
+    }
+
+    /// @notice Get L1 block info for current L2 block or from mapping
+    /// @return l1BlockNumber The L1 block number
+    /// @return l1BlockHash The L1 block hash
+    function getL1BlockInfo(uint256 l2BlockNumber) external view returns (
+        uint64 l1BlockNumber,
+        bytes32 l1BlockHash
+    ) {
+        // First check if there's a specific mapping for this L2 block
+        L1BlockInfo memory info = l2ToL1BlockMapping[l2BlockNumber];
+        if (info.l1BlockNumber != 0) {
+            return (info.l1BlockNumber, info.l1BlockHash);
+        }
+        
+        revert("No L1 block info found");
+    }
+
     /// @notice Updates the L1 block values for an Ecotone upgraded chain.
     /// Params are packed and passed in as raw msg.data instead of ABI to reduce calldata size.
     /// Params are expected to be in the following order:

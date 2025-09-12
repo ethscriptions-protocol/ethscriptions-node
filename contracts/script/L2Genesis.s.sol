@@ -5,10 +5,76 @@ import {Script} from "forge-std/Script.sol";
 import {L2GenesisConfig} from "./L2GenesisConfig.sol";
 import {Predeploys} from "../src/libraries/Predeploys.sol";
 import {Constants} from "../src/libraries/Constants.sol";
+import {Ethscriptions} from "../src/Ethscriptions.sol";
+import "forge-std/console.sol";
+
+/// @title GenesisEthscriptions
+/// @notice Temporary contract that extends Ethscriptions with genesis-specific creation
+/// @dev Used only during genesis, then replaced with the real Ethscriptions contract
+contract GenesisEthscriptions is Ethscriptions {
+    
+    /// @notice Create an ethscription with all values explicitly set for genesis
+    function createGenesisEthscription(
+        CreateEthscriptionParams calldata params,
+        address creator,
+        uint256 createdAt,
+        uint64 l1BlockNumber,
+        bytes32 l1BlockHash
+    ) public returns (uint256 tokenId) {
+        if (creator == address(0)) revert InvalidCreator();
+        // Allow address(0) as initial owner for burned ethscriptions
+        if (params.contentUri.length == 0) revert EmptyContentUri();
+        if (ethscriptions[params.transactionHash].creator != address(0)) revert EthscriptionAlreadyExists();
+
+        // Store content and get content SHA (reusing parent's helper)
+        bytes32 contentSha = _storeContent(params.contentUri, params.isCompressed, params.esip6);
+
+        // Set all values including genesis-specific ones
+        ethscriptions[params.transactionHash] = Ethscription({
+            contentSha: contentSha,
+            creator: creator,
+            initialOwner: params.initialOwner,
+            previousOwner: creator,
+            ethscriptionNumber: totalEthscriptions,
+            mimetype: params.mimetype,
+            mediaType: params.mediaType,
+            mimeSubtype: params.mimeSubtype,
+            esip6: params.esip6,
+            isCompressed: params.isCompressed,
+            createdAt: createdAt,
+            l1BlockNumber: l1BlockNumber,
+            l2BlockNumber: 0,  // Genesis ethscriptions have no L2 block
+            l1BlockHash: l1BlockHash
+        });
+
+        tokenId = uint256(params.transactionHash);
+        totalEthscriptions++;
+
+        // If initial owner is zero (burned), mint to creator then burn
+        if (params.initialOwner == address(0)) {
+            _mint(creator, tokenId);
+            _burn(tokenId);
+        } else {
+            _mint(params.initialOwner, tokenId);
+        }
+
+        emit EthscriptionCreated(
+            params.transactionHash,
+            creator,
+            params.initialOwner,
+            contentSha,
+            totalEthscriptions - 1,
+            _contentBySha[contentSha].length
+        );
+        
+        // Skip token handling for genesis
+    }
+}
 
 /// @title L2Genesis
 /// @notice Generates the minimal genesis state for the L2 network.
 ///         Sets up L1Block contract, L2ToL1MessagePasser, ProxyAdmin, and proxy infrastructure.
+
 contract L2Genesis is Script {
     uint256 constant PRECOMPILE_COUNT = 256;
     uint256 internal constant PREDEPLOY_COUNT = 2048;
@@ -31,6 +97,7 @@ contract L2Genesis is Script {
         dealEthToPrecompiles();
         setOPStackPredeploys();
         setEthscriptionsPredeploys();
+        createGenesisEthscriptions();
         
         // Fund dev accounts if enabled
         if (config.fundDevAccounts) {
@@ -138,6 +205,83 @@ contract L2Genesis is Script {
         }
     }
 
+    /// @notice Create genesis Ethscriptions from JSON data
+    function createGenesisEthscriptions() internal {
+        console.log("Creating genesis Ethscriptions...");
+        
+        // Read the JSON file
+        string memory json = vm.readFile("script/genesisEthscriptions.json");
+        
+        // Parse metadata
+        uint256 totalCount = abi.decode(vm.parseJson(json, ".metadata.totalCount"), (uint256));
+        console.log("Found", totalCount, "genesis Ethscriptions");
+        
+        // First, etch the GenesisEthscriptions contract temporarily
+        address ethscriptionsAddr = Predeploys.ETHSCRIPTIONS;
+        vm.etch(ethscriptionsAddr, type(GenesisEthscriptions).runtimeCode);
+        
+        GenesisEthscriptions genesisContract = GenesisEthscriptions(ethscriptionsAddr);
+        
+        // Process each ethscription
+        for (uint256 i = 0; i < totalCount; i++) {
+            _createSingleGenesisEthscription(json, i, genesisContract);
+        }
+        
+        console.log("Created", totalCount, "genesis Ethscriptions");
+        
+        // Now etch the real Ethscriptions contract over the GenesisEthscriptions
+        _setEthscriptionsCode(ethscriptionsAddr, "Ethscriptions");
+    }
+
+    /// @notice Helper to create a single genesis ethscription
+    function _createSingleGenesisEthscription(
+        string memory json,
+        uint256 index,
+        GenesisEthscriptions genesisContract
+    ) internal {
+        string memory basePath = string.concat(".ethscriptions[", vm.toString(index), "]");
+        
+        // Parse all data needed
+        address creator = vm.parseJsonAddress(json, string.concat(basePath, ".creator"));
+        address initialOwner = vm.parseJsonAddress(json, string.concat(basePath, ".initial_owner"));
+        
+        console.log("Processing ethscription", index);
+        console.log("  Creator:", creator);
+        console.log("  Initial owner:", initialOwner);
+        
+        uint256 blockTimestamp = vm.parseJsonUint(json, string.concat(basePath, ".block_timestamp"));
+        uint256 blockNumber = vm.parseJsonUint(json, string.concat(basePath, ".block_number"));
+        bytes32 blockHash = vm.parseJsonBytes32(json, string.concat(basePath, ".block_blockhash"));
+        
+        // Create params struct with parsed data
+        Ethscriptions.CreateEthscriptionParams memory params;
+        params.transactionHash = vm.parseJsonBytes32(json, string.concat(basePath, ".transaction_hash"));
+        params.initialOwner = initialOwner;
+        params.contentUri = bytes(vm.parseJsonString(json, string.concat(basePath, ".content_uri")));
+        params.mimetype = vm.parseJsonString(json, string.concat(basePath, ".mimetype"));
+        params.mediaType = vm.parseJsonString(json, string.concat(basePath, ".media_type"));
+        params.mimeSubtype = vm.parseJsonString(json, string.concat(basePath, ".mime_subtype"));
+        params.esip6 = vm.parseJsonBool(json, string.concat(basePath, ".esip6"));
+        params.isCompressed = false;
+        params.tokenParams = Ethscriptions.TokenParams({
+            op: "",
+            protocol: "",
+            tick: "",
+            max: 0,
+            lim: 0,
+            amt: 0
+        });
+        
+        // Create the genesis ethscription with all values
+        genesisContract.createGenesisEthscription(
+            params,
+            creator,
+            blockTimestamp,
+            uint64(blockNumber),
+            blockHash
+        );
+    }
+
     // ============ Helper Functions ============
     
     /// @notice Disable initializers on a contract to prevent initialization
@@ -149,6 +293,7 @@ contract L2Genesis is Script {
     function _setEthscriptionsCode(address _addr, string memory _name) internal {
         bytes memory code = vm.getDeployedCode(string.concat(_name, ".sol:", _name));
         vm.etch(_addr, code);
+        vm.resetNonce(_addr);
         vm.setNonce(_addr, 1);
     }
 

@@ -16,7 +16,8 @@ remappings = [
 
 # Allow tests to read JSON fixtures from the test directory
 fs_permissions = [
-    { access = "read", path = "./test" }
+    { access = "read", path = "./test" },
+    { access = "read", path = "./script" }
 ]
 ffi = true
 
