@@ -21,10 +21,10 @@ contract GenesisEthscriptions is Ethscriptions {
         uint64 l1BlockNumber,
         bytes32 l1BlockHash
     ) public returns (uint256 tokenId) {
-        if (creator == address(0)) revert InvalidCreator();
+        require(creator != address(0), "Invalid creator");
         // Allow address(0) as initial owner for burned ethscriptions
-        if (params.contentUri.length == 0) revert EmptyContentUri();
-        if (ethscriptions[params.transactionHash].creator != address(0)) revert EthscriptionAlreadyExists();
+        require(params.contentUri.length > 0, "Empty content URI");
+        require(ethscriptions[params.transactionHash].creator == address(0), "Ethscription already exists");
 
         // Store content and get content SHA (reusing parent's helper)
         bytes32 contentSha = _storeContent(params.contentUri, params.isCompressed, params.esip6);
@@ -85,29 +85,7 @@ contract L2Genesis is Script {
 
     /// @notice Main entry point for genesis generation
     function run() public {
-        // Load configuration
-        config = L2GenesisConfig.getConfig();
-
-        // Use a deployer account for genesis setup
-        address deployer = makeAddr("deployer");
-        vm.startPrank(deployer);
-        vm.chainId(config.l2ChainID);
-
-        // Set up genesis state
-        dealEthToPrecompiles();
-        setOPStackPredeploys();
-        setEthscriptionsPredeploys();
-        createGenesisEthscriptions();
-        
-        // Fund dev accounts if enabled
-        if (config.fundDevAccounts) {
-            fundDevAccounts();
-        }
-
-        // Clean up deployer
-        vm.stopPrank();
-        vm.deal(deployer, 0);
-        vm.resetNonce(deployer);
+        runWithoutDump();
         
         // Dump state and prettify with jq
         vm.dumpState(GENESIS_JSON_FILE);
@@ -120,6 +98,31 @@ contract L2Genesis is Script {
         string memory tempFile = string.concat("/tmp/genesis-", vm.toString(block.timestamp), ".json");
         inputs[2] = string.concat("jq --sort-keys . ", GENESIS_JSON_FILE, " > ", tempFile, " && mv ", tempFile, " ", GENESIS_JSON_FILE);
         vm.ffi(inputs);
+    }
+    
+    function runWithoutDump() public {
+        // Load configuration
+        config = L2GenesisConfig.getConfig();
+
+        // Use a deployer account for genesis setup
+        address deployer = makeAddr("deployer");
+        vm.startPrank(deployer);
+        vm.chainId(config.l2ChainID);
+
+        // Set up genesis state
+        dealEthToPrecompiles();
+        setOPStackPredeploys();
+        setEthscriptionsPredeploys();  // This now includes createGenesisEthscriptions()
+        
+        // Fund dev accounts if enabled
+        if (config.fundDevAccounts) {
+            fundDevAccounts();
+        }
+
+        // Clean up deployer
+        vm.stopPrank();
+        vm.deal(deployer, 0);
+        vm.resetNonce(deployer);
     }
 
     /// @notice Give all precompiles 1 wei (required for EVM compatibility)
@@ -164,11 +167,14 @@ contract L2Genesis is Script {
     
     /// @notice Set up Ethscriptions system contracts
     function setEthscriptionsPredeploys() internal {
-        // Deploy Ethscriptions contracts directly (no proxies for now)
-        _setEthscriptionsCode(Predeploys.ETHSCRIPTIONS, "Ethscriptions");
+        // Create genesis Ethscriptions first (this handles the Ethscriptions contract setup)
+
+        // Deploy other Ethscriptions-related contracts
         _setEthscriptionsCode(Predeploys.TOKEN_MANAGER, "TokenManager");
         _setEthscriptionsCode(Predeploys.ETHSCRIPTIONS_PROVER, "EthscriptionsProver");
         _setEthscriptionsCode(Predeploys.ERC20_TEMPLATE, "EthscriptionsERC20");
+
+        createGenesisEthscriptions();
         
         // Disable initializers on all Ethscriptions contracts
         _disableInitializers(Predeploys.ETHSCRIPTIONS);
@@ -219,17 +225,20 @@ contract L2Genesis is Script {
         // First, etch the GenesisEthscriptions contract temporarily
         address ethscriptionsAddr = Predeploys.ETHSCRIPTIONS;
         vm.etch(ethscriptionsAddr, type(GenesisEthscriptions).runtimeCode);
-        
+
+        vm.setNonce(ethscriptionsAddr, 1);
+
         GenesisEthscriptions genesisContract = GenesisEthscriptions(ethscriptionsAddr);
-        
-        // Process each ethscription
+
+        // Process each ethscription (this will increment the nonce as SSTORE2 contracts are deployed)
         for (uint256 i = 0; i < totalCount; i++) {
             _createSingleGenesisEthscription(json, i, genesisContract);
         }
-        
+
         console.log("Created", totalCount, "genesis Ethscriptions");
-        
+
         // Now etch the real Ethscriptions contract over the GenesisEthscriptions
+        // IMPORTANT: Do NOT reset the nonce here - it needs to continue from where it left off
         _setEthscriptionsCode(ethscriptionsAddr, "Ethscriptions");
     }
 
@@ -293,8 +302,7 @@ contract L2Genesis is Script {
     function _setEthscriptionsCode(address _addr, string memory _name) internal {
         bytes memory code = vm.getDeployedCode(string.concat(_name, ".sol:", _name));
         vm.etch(_addr, code);
-        vm.resetNonce(_addr);
-        vm.setNonce(_addr, 1);
+        // Don't reset nonce here - let the caller manage it
     }
 
     /// @notice Set the admin of a proxy contract
@@ -319,16 +327,14 @@ contract L2Genesis is Script {
         return impl;
     }
     
-    function getName(address _addr) internal pure returns (string memory) {
+    function getName(address _addr) internal pure returns (string memory ret) {
         // OP Stack predeploys
         if (_addr == Predeploys.L1_BLOCK_ATTRIBUTES) {
-            return "L1Block";
+            ret = "L1Block";
         } else if (_addr == Predeploys.L2_TO_L1_MESSAGE_PASSER) {
-            return "L2ToL1MessagePasser";
+            ret = "L2ToL1MessagePasser";
         } else if (_addr == Predeploys.PROXY_ADMIN) {
-            return "ProxyAdmin";
+            ret = "ProxyAdmin";
         }
-        
-        revert("Invalid predeploy address");
     }
 }

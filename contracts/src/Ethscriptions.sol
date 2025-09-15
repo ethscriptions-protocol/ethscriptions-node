@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import {SSTORE2} from "solady/utils/SSTORE2.sol";
 import {LibZip} from "solady/utils/LibZip.sol";
+import {Base64} from "solady/utils/Base64.sol";
+import {LibString} from "solady/utils/LibString.sol";
 import "./TokenManager.sol";
 import "./EthscriptionsProver.sol";
 import "./libraries/Predeploys.sol";
@@ -13,6 +15,8 @@ import "./L2/L1Block.sol";
 /// @notice Mints Ethscriptions as ERC-721 tokens based on L1 transaction data
 /// @dev Uses transaction hash as token ID to maintain consistency with existing system
 contract Ethscriptions is ERC721Upgradeable {
+    using LibString for *;
+    
     /// @dev Maximum chunk size for SSTORE2 (24KB - 1 byte for STOP opcode)
     uint256 private constant CHUNK_SIZE = 24575;
     
@@ -84,11 +88,22 @@ contract Ethscriptions is ERC721Upgradeable {
         uint256 pointerCount
     );
 
+    /// @notice Emitted when an ethscription is transferred (Ethscriptions protocol semantics)
+    /// @dev This event matches the Ethscriptions protocol transfer semantics where 'from' is the initiator
+    /// For creations, this shows transfer from creator to initial owner (not from address(0))
+    event EthscriptionTransferred(
+        bytes32 indexed transactionHash,
+        address indexed from,
+        address indexed to,
+        uint256 ethscriptionNumber
+    );
+
     error DuplicateContent();
     error InvalidCreator();
     error EmptyContentUri();
     error EthscriptionAlreadyExists();
     error EthscriptionDoesNotExist();
+
     
     function name() public pure override returns (string memory) {
         return "Ethscriptions";
@@ -151,7 +166,15 @@ contract Ethscriptions is ERC721Upgradeable {
             totalEthscriptions - 1,
             _contentBySha[contentSha].length
         );
-        
+
+        // Emit Ethscriptions protocol transfer event (from creator to initial owner)
+        emit EthscriptionTransferred(
+            params.transactionHash,
+            creator,
+            params.initialOwner,
+            totalEthscriptions - 1
+        );
+
         // Handle token operations - delegate all logic to TokenManager
         // No need to check if it's a token operation, handleTokenOperation will check the op
         tokenManager.handleTokenOperation(
@@ -201,27 +224,61 @@ contract Ethscriptions is ERC721Upgradeable {
             ethscriptions[transactionHash].previousOwner == previousOwner,
             "Previous owner mismatch"
         );
-        
+
         uint256 tokenId = uint256(transactionHash);
         // Use transferFrom which now handles burns when to == address(0)
         transferFrom(msg.sender, to, tokenId);
+    }
+
+    /// @notice Transfer multiple ethscriptions to a single recipient
+    /// @dev Continues transferring even if individual transfers fail due to wrong ownership
+    /// @param transactionHashes Array of ethscription hashes to transfer
+    /// @param to The recipient address (can be address(0) for burning)
+    /// @return successCount Number of successful transfers
+    function transferMultipleEthscriptions(
+        bytes32[] calldata transactionHashes,
+        address to
+    ) external returns (uint256 successCount) {
+        for (uint256 i = 0; i < transactionHashes.length; i++) {
+            uint256 tokenId = uint256(transactionHashes[i]);
+
+            // Check if sender owns this token before attempting transfer
+            // This prevents reverts and allows us to continue
+            if (_ownerOf(tokenId) == msg.sender) {
+                // Perform the transfer directly using internal _update
+                _update(to, tokenId, msg.sender);
+                successCount++;
+            }
+            // If sender doesn't own the token, just continue to next one
+        }
+
+        require(successCount > 0, "No successful transfers");
     }
 
     /// @dev Override _update to track previous owner and handle token transfers
     function _update(address to, uint256 tokenId, address auth) internal virtual override returns (address) {
         address from = _ownerOf(tokenId);
         bytes32 txHash = bytes32(tokenId);
-        
+
         // Update previous owner if this is a transfer (not mint)
         if (from != address(0)) {
             ethscriptions[txHash].previousOwner = from;
-            
+
+            // Emit Ethscriptions protocol transfer event
+            // This preserves the protocol semantics where 'from' is the initiator
+            emit EthscriptionTransferred(
+                txHash,
+                from,
+                to,
+                ethscriptions[txHash].ethscriptionNumber
+            );
+
             // Let TokenManager handle any token transfers
             tokenManager.handleTokenTransfer(txHash, from, to);
         }
-        
+
         prover.proveEthscriptionData(txHash);
-        
+
         // Call parent implementation
         return super._update(to, tokenId, auth);
     }
@@ -238,58 +295,112 @@ contract Ethscriptions is ERC721Upgradeable {
         bytes32 txHash = bytes32(tokenId);
         Ethscription memory etsc = ethscriptions[txHash];
         require(etsc.creator != address(0), "Token does not exist");
-        
+
+        // Get the content data URI
+        string memory imageDataURI = _getContentDataURI(txHash);
+
+        // Build attributes array
+        string memory attributes = string.concat(
+            '[{"trait_type":"Ethscription Number","display_type":"number","value":',
+            etsc.ethscriptionNumber.toString(),
+            '},{"trait_type":"Creator","value":"',
+            etsc.creator.toHexString(),
+            '"},{"trait_type":"Initial Owner","value":"',
+            etsc.initialOwner.toHexString(),
+            '"},{"trait_type":"Content SHA","value":"',
+            uint256(etsc.contentSha).toHexString(),
+            '"},{"trait_type":"MIME Type","value":"',
+            etsc.mimetype,
+            '"},{"trait_type":"Media Type","value":"',
+            etsc.mediaType,
+            '"},{"trait_type":"MIME Subtype","value":"',
+            etsc.mimeSubtype,
+            '"},{"trait_type":"ESIP-6","value":"',
+            etsc.esip6 ? "true" : "false",
+            '"},{"trait_type":"Compressed","value":"',
+            etsc.isCompressed ? "true" : "false",
+            '"},{"trait_type":"L1 Block Number","display_type":"number","value":',
+            uint256(etsc.l1BlockNumber).toString(),
+            '},{"trait_type":"L2 Block Number","display_type":"number","value":',
+            uint256(etsc.l2BlockNumber).toString(),
+            '},{"trait_type":"Created At","display_type":"date","value":',
+            etsc.createdAt.toString(),
+            '}]'
+        );
+
+        // Build the JSON metadata
+        string memory json = string.concat(
+            '{"name":"Ethscription #',
+            etsc.ethscriptionNumber.toString(),
+            '","description":"Ethscription #',
+            etsc.ethscriptionNumber.toString(),
+            ' created by ',
+            etsc.creator.toHexString(),
+            '","image":"',
+            imageDataURI,
+            '","attributes":',
+            attributes,
+            '}'
+        );
+
+        // Return as base64-encoded data URI
+        return string.concat(
+            "data:application/json;base64,",
+            Base64.encode(bytes(json))
+        );
+    }
+
+    /// @dev Helper function to get content as data URI
+    function _getContentDataURI(bytes32 txHash) internal view returns (string memory) {
+        Ethscription memory etsc = ethscriptions[txHash];
         address[] memory pointers = _contentBySha[etsc.contentSha];
         require(pointers.length > 0, "No content stored");
-        
+
+        bytes memory content;
+
         if (pointers.length == 1) {
             // Single pointer - simple read
-            bytes memory content = SSTORE2.read(pointers[0]);
-            // Decompress if needed
-            if (etsc.isCompressed) {
-                content = LibZip.flzDecompress(content);
+            content = SSTORE2.read(pointers[0]);
+        } else {
+            // Multiple pointers - efficient assembly concatenation
+            assembly {
+                // Calculate total size needed
+                let totalSize := 0
+                let pointersLength := mload(pointers)
+                let dataOffset := 0x01 // SSTORE2 data starts after STOP opcode (0x00)
+
+                for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
+                    let pointer := mload(add(pointers, add(0x20, mul(i, 0x20))))
+                    let codeSize := extcodesize(pointer)
+                    totalSize := add(totalSize, sub(codeSize, dataOffset))
+                }
+
+                // Allocate result buffer
+                content := mload(0x40)
+                let contentPtr := add(content, 0x20)
+
+                // Copy data from each pointer
+                let currentOffset := 0
+                for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
+                    let pointer := mload(add(pointers, add(0x20, mul(i, 0x20))))
+                    let codeSize := extcodesize(pointer)
+                    let chunkSize := sub(codeSize, dataOffset)
+                    extcodecopy(pointer, add(contentPtr, currentOffset), dataOffset, chunkSize)
+                    currentOffset := add(currentOffset, chunkSize)
+                }
+
+                // Update length and free memory pointer with proper alignment
+                mstore(content, totalSize)
+                mstore(0x40, and(add(add(contentPtr, totalSize), 0x1f), not(0x1f)))
             }
-            return string(content);
         }
-        
-        // Multiple pointers - efficient assembly concatenation
-        bytes memory result;
-        assembly {
-            // Calculate total size needed
-            let totalSize := 0
-            let pointersLength := mload(pointers)
-            let dataOffset := 0x01 // SSTORE2 data starts after STOP opcode (0x00)
-            
-            for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
-                let pointer := mload(add(pointers, add(0x20, mul(i, 0x20))))
-                let codeSize := extcodesize(pointer)
-                totalSize := add(totalSize, sub(codeSize, dataOffset))
-            }
-            
-            // Allocate result buffer
-            result := mload(0x40)
-            let resultPtr := add(result, 0x20)
-            
-            // Copy data from each pointer
-            let currentOffset := 0
-            for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
-                let pointer := mload(add(pointers, add(0x20, mul(i, 0x20))))
-                let codeSize := extcodesize(pointer)
-                let chunkSize := sub(codeSize, dataOffset)
-                extcodecopy(pointer, add(resultPtr, currentOffset), dataOffset, chunkSize)
-                currentOffset := add(currentOffset, chunkSize)
-            }
-            
-            // Update length and free memory pointer with proper alignment
-            mstore(result, totalSize)
-            mstore(0x40, and(add(add(resultPtr, totalSize), 0x1f), not(0x1f)))
-        }
-        
+
         // Decompress if needed
         if (etsc.isCompressed) {
-            result = LibZip.flzDecompress(result);
+            content = LibZip.flzDecompress(content);
         }
-        return string(result);
+
+        return string(content);
     }
 
     /// @notice Get current owner of an ethscription

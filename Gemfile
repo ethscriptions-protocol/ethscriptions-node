@@ -46,22 +46,20 @@ end
 
 gem "dotenv-rails", "~> 2.8", groups: [:development, :test]
 
-gem "httpparty", "~> 0.2.0"
-
 # For Ethscription content compression
 gem "fastlz", "~> 0.1.0"
-
-gem "clockwork", "~> 3.0"
 
 gem "dalli", "~> 3.2"
 
 gem "kaminari", "~> 1.2"
 
-gem "airbrake", "~> 13.0"
-
 gem "rack-cors", "~> 2.0"
 
-gem "eth", "~> 0.5.11"
+gem "eth", github: "0xFacet/eth.rb"
+
+gem 'sorbet', :group => :development
+gem 'sorbet-runtime'
+gem 'tapioca', require: false, :group => [:development, :test]
 
 gem "activerecord-import", "~> 1.5"
 
@@ -71,13 +69,8 @@ gem "memoist", "~> 0.16.2"
 
 gem "awesome_print", "~> 1.9"
 
-gem "clipboard"
 
 gem "redis", "~> 5.0"
-
-gem "httparty", "~> 0.21.0"
-
-gem "order_query", "~> 0.5.3"
 
 gem 'facet_rails_common', git: 'https://github.com/0xfacet/facet_rails_common.git'
 
@@ -86,3 +79,27 @@ gem "cbor", "~> 0.5.9"
 gem 'rswag-api'
 
 gem 'rswag-ui'
+
+gem 'keccak', '~> 1.3'
+gem "memery", "~> 1.5"
+
+gem "httparty", "~> 0.22.0"
+
+gem "jwt", "~> 2.8"
+
+gem "clockwork", "~> 3.0"
+
+gem "airbrake", "~> 13.0"
+gem "clipboard", "~> 2.0", :group => [:development, :test]
+gem "order_query", "~> 0.5.3"
+
+gem "parallel", "~> 1.25"
+
+gem "net-http-persistent", "~> 4.0"
+
+gem 'benchmark'
+gem 'ostruct'
+
+gem "oj", "~> 3.16"
+
+gem "retriable", "~> 3.1"

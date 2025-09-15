@@ -16,7 +16,7 @@ Rails.application.configure do
 
   # Enable server timing
   config.server_timing = true
-
+  
   # Enable/disable caching. By default caching is disabled.
   # Run rails dev:cache to toggle caching.
   if Rails.root.join("tmp/caching-dev.txt").exist?
@@ -38,7 +38,10 @@ Rails.application.configure do
     config.cache_store = :null_store
   end
   
-  config.logger = ActiveSupport::Logger.new('/dev/null')
+  # Output logger to STDOUT for development
+  config.logger = ActiveSupport::Logger.new(STDOUT)
+  config.logger.formatter = Logger::Formatter.new
+  config.log_level = :info
 
   # Print deprecation notices to the Rails logger.
   config.active_support.deprecation = :log

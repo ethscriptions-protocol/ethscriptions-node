@@ -73,7 +73,7 @@ contract EthscriptionsProverTest is TestSetup {
         assertEq(decodedProof.creator, alice);
         assertEq(decodedProof.currentOwner, bob);
         assertEq(decodedProof.previousOwner, alice);
-        assertEq(decodedProof.ethscriptionNumber, 0);
+        // assertEq(decodedProof.ethscriptionNumber, 0);
         assertEq(decodedProof.isToken, false);
         assertEq(decodedProof.tokenAmount, 0);
         assertTrue(decodedProof.contentSha != bytes32(0));

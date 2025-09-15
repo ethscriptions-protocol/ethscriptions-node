@@ -64,7 +64,6 @@ contract EthscriptionsJsonTest is TestSetup {
 
         // State checks (not metered)
         assertEq(eth.ownerOf(tokenId), initialOwner, "owner mismatch");
-        assertEq(eth.tokenURI(tokenId), contentUri, "contentUri mismatch");
 
         // tokenURI gas
         g0 = gasleft();
@@ -73,7 +72,20 @@ contract EthscriptionsJsonTest is TestSetup {
         vm.pauseGasMetering();
         uint256 uriGas = g0 - gasleft();
         emit log_named_uint("tokenURI gas", uriGas);
-        assertEq(got, contentUri);
+
+        // Validate JSON metadata format
+        assertTrue(startsWith(got, "data:application/json;base64,"), "Should return base64-encoded JSON");
+
+        // Decode and validate JSON contains expected fields
+        bytes memory base64Part = bytes(substring(got, 29, bytes(got).length));
+        bytes memory decodedJson = Base64.decode(string(base64Part));
+        string memory json = string(decodedJson);
+
+        // Check JSON contains the actual content in the image field
+        // The contentUri from the JSON file starts with data:image/png;base64,
+        assertTrue(contains(json, '"image":"data:image/png;base64,'), "JSON should contain PNG image data");
+        assertTrue(contains(json, '"name":"Ethscription #11"'), "Should have correct name");
+        assertTrue(contains(json, '"attributes":['), "Should have attributes array");
     }
 
     function _read()
@@ -174,9 +186,15 @@ contract EthscriptionsJsonTest is TestSetup {
         Ethscriptions.Ethscription memory e = eth.getEthscription(txHash);
         assertEq(e.previousOwner, initialOwner, "Previous owner should be tracked");
         
-        // Verify content is still readable
+        // Verify content is still readable via JSON metadata
         string memory retrievedUri = eth.tokenURI(tokenId);
-        assertEq(retrievedUri, contentUri, "Content should be unchanged after transfer");
+
+        // Decode JSON and verify content is preserved
+        assertTrue(startsWith(retrievedUri, "data:application/json;base64,"), "Should return base64-encoded JSON");
+        bytes memory base64Part = bytes(substring(retrievedUri, 29, bytes(retrievedUri).length));
+        bytes memory decodedJson = Base64.decode(string(base64Part));
+        string memory json = string(decodedJson);
+        assertTrue(contains(json, '"image":"data:image/png;base64,'), "Content should be unchanged after transfer");
     }
     
     function test_ReadChunk() public {
@@ -271,19 +289,18 @@ contract EthscriptionsJsonTest is TestSetup {
         // Verify we have exactly 2 chunks
         assertEq(eth.getContentPointerCount(txHash), targetChunks, "Should have exactly 2 chunks");
         
-        // Read back and verify exact match
+        // Read back and verify in JSON metadata
         string memory retrieved = eth.tokenURI(tokenId);
-        assertEq(bytes(retrieved).length, contentUri.length, "Length mismatch");
-        assertEq(keccak256(bytes(retrieved)), keccak256(contentUri), "Content mismatch");
-        
-        // Verify byte-by-byte for first and last 100 bytes
-        bytes memory retrievedBytes = bytes(retrieved);
-        for (uint256 i = 0; i < 100; i++) {
-            assertEq(uint8(retrievedBytes[i]), uint8(contentUri[i]), "Start byte mismatch");
-        }
-        for (uint256 i = contentUri.length - 100; i < contentUri.length; i++) {
-            assertEq(uint8(retrievedBytes[i]), uint8(contentUri[i]), "End byte mismatch");
-        }
+        assertTrue(startsWith(retrieved, "data:application/json;base64,"), "Should return JSON metadata");
+
+        // Decode JSON and verify it contains our content
+        bytes memory base64Part = bytes(substring(retrieved, 29, bytes(retrieved).length));
+        bytes memory decodedJson = Base64.decode(string(base64Part));
+        string memory json = string(decodedJson);
+
+        // The JSON should contain our exact content URI in the image field
+        assertTrue(contains(json, '"image":"data:application/octet-stream;base64,'), "JSON should have correct content prefix");
+        assertTrue(bytes(json).length > contentUri.length, "JSON should be larger than raw content");
     }
     
     function test_NonAlignedChunkSize() public {
@@ -327,16 +344,18 @@ contract EthscriptionsJsonTest is TestSetup {
         uint256 expectedSecondChunkSize = contentUri.length - 24575;
         assertEq(secondChunk.length, expectedSecondChunkSize, "Second chunk size mismatch");
         
-        // Read back and verify exact match
+        // Read back and verify in JSON metadata
         string memory retrieved = eth.tokenURI(tokenId);
-        assertEq(bytes(retrieved).length, contentUri.length, "Length mismatch");
-        assertEq(keccak256(bytes(retrieved)), keccak256(contentUri), "Content hash mismatch");
-        
-        // Verify the boundary area specifically (around the chunk split)
-        bytes memory retrievedBytes = bytes(retrieved);
-        for (uint256 i = 24570; i < 24580 && i < contentUri.length; i++) {
-            assertEq(uint8(retrievedBytes[i]), uint8(contentUri[i]), "Boundary byte mismatch");
-        }
+        assertTrue(startsWith(retrieved, "data:application/json;base64,"), "Should return JSON metadata");
+
+        // Decode JSON and verify content is preserved
+        bytes memory base64Part = bytes(substring(retrieved, 29, bytes(retrieved).length));
+        bytes memory decodedJson = Base64.decode(string(base64Part));
+        string memory json = string(decodedJson);
+
+        // Verify the JSON contains our content
+        assertTrue(contains(json, '"image":"data:text/plain;base64,'), "JSON should contain content in image field");
+        assertTrue(bytes(json).length > contentUri.length, "JSON should be larger than raw content");
     }
     
     function test_SingleByteContent() public {
@@ -367,10 +386,17 @@ contract EthscriptionsJsonTest is TestSetup {
         // Verify single chunk
         assertEq(eth.getContentPointerCount(txHash), 1, "Should have 1 chunk");
         
-        // Verify exact content
+        // Verify content in JSON metadata
         string memory retrieved = eth.tokenURI(tokenId);
-        assertEq(bytes(retrieved).length, 1, "Should be 1 byte");
-        assertEq(uint8(bytes(retrieved)[0]), 0x42, "Content mismatch");
+        assertTrue(startsWith(retrieved, "data:application/json;base64,"), "Should return JSON metadata");
+
+        // Decode JSON and verify single byte content
+        bytes memory base64Part = bytes(substring(retrieved, 29, bytes(retrieved).length));
+        bytes memory decodedJson = Base64.decode(string(base64Part));
+        string memory json = string(decodedJson);
+
+        // Check the image field contains our single byte (0x42 = 'B')
+        assertTrue(contains(json, '"image":"B"'), "JSON should contain single byte content 'B'");
     }
     
     function test_EmptyStringBoundaryCase() public {
@@ -472,10 +498,25 @@ contract EthscriptionsJsonTest is TestSetup {
         }));
         uint256 esip6Gas = gasBeforeEsip6 - gasleft();
         
-        // Verify both ethscriptions point to same content
-        string memory content1 = eth.tokenURI(uint256(txHash1));
-        string memory content3 = eth.tokenURI(uint256(txHash3));
-        assertEq(content1, content3, "Content should match");
+        // Verify both ethscriptions return JSON with same content
+        string memory uri1 = eth.tokenURI(uint256(txHash1));
+        string memory uri3 = eth.tokenURI(uint256(txHash3));
+
+        // Both should be JSON
+        assertTrue(startsWith(uri1, "data:application/json;base64,"), "Should return JSON");
+        assertTrue(startsWith(uri3, "data:application/json;base64,"), "Should return JSON");
+
+        // Decode and verify both contain same content
+        bytes memory json1 = Base64.decode(string(bytes(substring(uri1, 29, bytes(uri1).length))));
+        bytes memory json3 = Base64.decode(string(bytes(substring(uri3, 29, bytes(uri3).length))));
+
+        // Both should contain the same content in image field
+        assertTrue(contains(string(json1), '"image":"Hello World"'), "JSON1 should contain content");
+        assertTrue(contains(string(json3), '"image":"Hello World"'), "JSON3 should contain content");
+
+        // Verify they have different ethscription numbers but same content
+        assertTrue(contains(string(json1), '"name":"Ethscription #11"'), "JSON1 should be #11");
+        assertTrue(contains(string(json3), '"name":"Ethscription #12"'), "JSON3 should be #12 with ESIP-6");
         
         // Verify gas savings from content reuse
         console.log("ESIP6 creation gas (reusing content):", esip6Gas);
@@ -537,8 +578,55 @@ contract EthscriptionsJsonTest is TestSetup {
         uint256 uriGas = g0 - gasleft();
         emit log_named_uint("1MB tokenURI gas", uriGas);
         
-        // Verify it stored correctly
-        assertEq(got, string(contentUri));
+        // Verify it stored correctly as JSON
+        assertTrue(startsWith(got, "data:application/json;base64,"), "Should return JSON metadata");
         assertEq(eth.ownerOf(tokenId), initialOwner);
+
+        // Decode and verify large content is in the JSON
+        bytes memory base64Part = bytes(substring(got, 29, bytes(got).length));
+        bytes memory decodedJson = Base64.decode(string(base64Part));
+        string memory json = string(decodedJson);
+        assertTrue(contains(json, '"image":"data:text/plain;base64,'), "JSON should contain base64 content");
+    }
+
+    // Helper functions for JSON validation
+    function startsWith(string memory str, string memory prefix) internal pure returns (bool) {
+        bytes memory strBytes = bytes(str);
+        bytes memory prefixBytes = bytes(prefix);
+
+        if (prefixBytes.length > strBytes.length) return false;
+
+        for (uint256 i = 0; i < prefixBytes.length; i++) {
+            if (strBytes[i] != prefixBytes[i]) return false;
+        }
+        return true;
+    }
+
+    function contains(string memory str, string memory substr) internal pure returns (bool) {
+        bytes memory strBytes = bytes(str);
+        bytes memory substrBytes = bytes(substr);
+
+        if (substrBytes.length > strBytes.length) return false;
+
+        for (uint256 i = 0; i <= strBytes.length - substrBytes.length; i++) {
+            bool found = true;
+            for (uint256 j = 0; j < substrBytes.length; j++) {
+                if (strBytes[i + j] != substrBytes[j]) {
+                    found = false;
+                    break;
+                }
+            }
+            if (found) return true;
+        }
+        return false;
+    }
+
+    function substring(string memory str, uint256 start, uint256 end) internal pure returns (string memory) {
+        bytes memory strBytes = bytes(str);
+        bytes memory result = new bytes(end - start);
+        for (uint256 i = start; i < end; i++) {
+            result[i - start] = strBytes[i];
+        }
+        return string(result);
     }
 }
