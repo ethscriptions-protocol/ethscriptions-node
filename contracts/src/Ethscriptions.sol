@@ -568,12 +568,12 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
 
     /// @dev Helper function to generate minimal HTML viewer for text content
     function _getTextViewerHTML(string memory encodedPayload, string memory mimetype) internal pure returns (string memory) {
-        // Ultra-minimal HTML with inline styles
-        // No headers/titles, just the content centered in viewport
+        // Ultra-minimal HTML with inline styles optimized for iframe display
+        // Uses dynamic viewport units and centers content without scrollbars
         return string.concat(
             '<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>',
-            '<style>body{margin:0;padding:16px;background:#0b0b0c;color:#f5f5f5;font-family:monospace;display:flex;justify-content:center;align-items:center;min-height:100vh}',
-            'pre{margin:0;padding:16px;background:rgba(0,0,0,0.5);border-radius:8px;overflow:auto;white-space:pre-wrap;word-break:break-word;max-height:90vh;line-height:1.4;font-size:14px}</style></head>',
+            '<style>*{box-sizing:border-box;margin:0;padding:0;border:0}body{padding:6dvw;background:#0b0b0c;color:#f5f5f5;font-family:monospace;display:flex;justify-content:center;align-items:center;min-height:100dvh;overflow:hidden}',
+            'pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;line-height:1.4;font-size:14px}</style></head>',
             '<body><pre id="o"></pre><script>',
             'const p="', encodedPayload, '";',
             'const m="', mimetype.escapeJSON(), '";',  // Escape to prevent breaking out of JS string
