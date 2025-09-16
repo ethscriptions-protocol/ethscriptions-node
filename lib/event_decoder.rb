@@ -16,7 +16,7 @@ class EventDecoder
     'Transfer(address,address,uint256)'
   ).unpack1('H*')
 
-  ETHSCRIPTIONS_ADDRESS = '0x3300000000000000000000000000000000000001'
+  ETHSCRIPTIONS_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
 
   class << self
     def decode_receipt_logs(receipt)

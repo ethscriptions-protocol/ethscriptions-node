@@ -25,7 +25,7 @@ contract GenesisEthscriptions is Ethscriptions {
         require(ethscriptions[params.transactionHash].creator == address(0), "Ethscription already exists");
 
         // Check protocol uniqueness using content URI hash
-        if (_contentUriExists[params.contentUriHash]) {
+        if (contentUriExists[params.contentUriHash]) {
             if (!params.esip6) revert DuplicateContentUri();
         }
 
@@ -33,7 +33,7 @@ contract GenesisEthscriptions is Ethscriptions {
         bytes32 contentSha = _storeContent(params.content);
 
         // Mark content URI as used
-        _contentUriExists[params.contentUriHash] = true;
+        contentUriExists[params.contentUriHash] = true;
 
         // Set all values including genesis-specific ones
         ethscriptions[params.transactionHash] = Ethscription({
@@ -43,7 +43,6 @@ contract GenesisEthscriptions is Ethscriptions {
                 mimetype: params.mimetype,
                 mediaType: params.mediaType,
                 mimeSubtype: params.mimeSubtype,
-                wasBase64: params.wasBase64,
                 esip6: params.esip6
             }),
             creator: creator,
@@ -78,7 +77,7 @@ contract GenesisEthscriptions is Ethscriptions {
             params.initialOwner,
             contentSha,
             tokenId,
-            _contentBySha[contentSha].pointers.length
+            contentBySha[contentSha].pointers.length
         );
 
         // Skip token handling for genesis
@@ -286,7 +285,6 @@ contract L2Genesis is Script {
         params.mimetype = vm.parseJsonString(json, string.concat(basePath, ".mimetype"));
         params.mediaType = vm.parseJsonString(json, string.concat(basePath, ".media_type"));
         params.mimeSubtype = vm.parseJsonString(json, string.concat(basePath, ".mime_subtype"));
-        params.wasBase64 = vm.parseJsonBool(json, string.concat(basePath, ".was_base64"));
         params.esip6 = vm.parseJsonBool(json, string.concat(basePath, ".esip6"));
         params.tokenParams = Ethscriptions.TokenParams({
             op: "",

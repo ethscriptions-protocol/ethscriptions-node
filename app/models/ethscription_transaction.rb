@@ -28,7 +28,7 @@ class EthscriptionTransaction < T::Struct
 
   # Deposit transaction type
   DEPOSIT_TX_TYPE = 0x7D
-  ETHSCRIPTIONS_CONTRACT_ADDRESS = '0x3300000000000000000000000000000000000001'
+  ETHSCRIPTIONS_CONTRACT_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
 
   # Build deposits from an L1 transaction
   sig { params(eth_transaction: EthTransaction, ethscriptions_block: EthscriptionsBlock).returns(T::Array[EthscriptionTransaction]) }

@@ -63,7 +63,7 @@ L1 RPC  ─▶│ EthRpcClient│──blocks▶│ EthBlockImporter │──de
 - **ERC721EthscriptionsUpgradeable.sol**: Minimal ERC-721 core that supports address(0) ownership, removes approvals, and exposes `_update` for better control.
 - **TokenManager.sol**: Receives callbacks (`handleTokenOperation`, `handleTokenTransfer`) for token protocols. Logic still needs Ruby-side parameter parsing.
 - **EthscriptionsProver.sol**: Emits proofs for downstream verification.
-- **Predeploy Addresses**: Located in `contracts/genesis-allocs.json` (Ethscriptions contract at `0x3300000000000000000000000000000000000001`).
+- **Predeploy Addresses**: Located in `contracts/genesis-allocs.json` (Ethscriptions contract at `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`).
 
 ### 3.2 Identity & Storage
 
@@ -72,7 +72,7 @@ L1 RPC  ─▶│ EthRpcClient│──blocks▶│ EthBlockImporter │──de
 | Token identity | `tokenId = uint256(bytes32(transactionHash))` |
 | Reverse lookup | `mapping(uint256 => bytes32) tokenIdToTransactionHash` |
 | Metadata | `mapping(bytes32 => Ethscription)` with creator, owners, mimetype, ESIP flags, timestamps, L1/L2 provenance |
-| Content storage | `_contentBySha[bytes32]` → `address[]` of SSTORE2 pointers |
+| Content storage | `contentBySha[bytes32]` → `address[]` of SSTORE2 pointers |
 
 ### 3.3 SSTORE2 Strategy & Gas
 

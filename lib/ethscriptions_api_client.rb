@@ -1,7 +1,3 @@
-require 'net/http'
-require 'json'
-require 'uri'
-
 class EthscriptionsApiClient
   BASE_URL = ENV.fetch('ETHSCRIPTIONS_API_BASE_URL', 'http://127.0.0.1:3000')
 
@@ -85,18 +81,39 @@ class EthscriptionsApiClient
         tx_hash = (item['transaction_hash'] || '').downcase
         creator = (item['creator'] || '').downcase
         initial_owner = (item['initial_owner'] || item['creator'] || '').downcase
-        # TODO: Put everything in here
+        current_owner = (item['current_owner'] || '').downcase
+        previous_owner = (item['previous_owner'] || '').downcase
+
+        # Decode the b64_content field if present
+        content = Base64.decode64(item['b64_content'])
+
         {
           tx_hash: tx_hash,
+          transaction_hash: tx_hash, # Include both for compatibility
+          block_number: item['block_number'],
+          transaction_index: item['transaction_index'],
+          block_timestamp: item['block_timestamp'],
+          block_blockhash: item['block_blockhash'],
+          event_log_index: item['event_log_index'],
+          ethscription_number: item['ethscription_number'],
           creator: creator,
           initial_owner: initial_owner,
+          current_owner: current_owner,
+          previous_owner: previous_owner,
           content_uri: item['content_uri'],
-          content_sha: item['content_sha'],
+          content_sha: "0x" + Digest::SHA256.hexdigest(content),
+          esip6: item['esip6'] || false,
           mimetype: item['mimetype'],
           media_type: item['media_type'],
           mime_subtype: item['mime_subtype'],
-          block_number: item['block_number'],
-          esip6: item['esip6'] || false
+          gas_price: item['gas_price'],
+          gas_used: item['gas_used'],
+          transaction_fee: item['transaction_fee'],
+          value: item['value'],
+          attachment_sha: item['attachment_sha'],
+          attachment_content_type: item['attachment_content_type'],
+          b64_content: item['b64_content'],  # Keep the original base64
+          content: content  # Add decoded content
         }
       end
     end

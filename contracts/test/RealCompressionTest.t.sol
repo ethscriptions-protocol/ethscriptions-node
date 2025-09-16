@@ -10,7 +10,7 @@ contract RealCompressionTest is Test {
     using LibZip for bytes;
     
     // Simulate the real ethscriptions storage pattern
-    mapping(bytes32 => address[]) private _contentBySha;
+    mapping(bytes32 => address[]) private contentBySha;
     mapping(bytes32 => address[]) private _compressedContentBySha;
     
     // function testRealEthscriptionCompressionWithAssembly() public {
@@ -102,7 +102,7 @@ contract RealCompressionTest is Test {
             }
             
             address pointer = SSTORE2.write(chunk);
-            _contentBySha[sha].push(pointer);
+            contentBySha[sha].push(pointer);
         }
         
         writeGas = gasStart - gasleft();
@@ -110,7 +110,7 @@ contract RealCompressionTest is Test {
         
         // Read phase using assembly (mimicking real contract)
         gasStart = gasleft();
-        bytes memory result = _readWithAssembly(_contentBySha[sha]);
+        bytes memory result = _readWithAssembly(contentBySha[sha]);
         readGas = gasStart - gasleft();
         
         // Verify

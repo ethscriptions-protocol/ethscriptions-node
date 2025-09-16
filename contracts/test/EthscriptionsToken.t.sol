@@ -44,7 +44,6 @@ contract EthscriptionsTokenTest is TestSetup {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            wasBase64: false,
             esip6: false,
             tokenParams: tokenParams
         });

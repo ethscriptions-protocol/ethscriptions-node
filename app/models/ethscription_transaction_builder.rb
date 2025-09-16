@@ -64,7 +64,7 @@ class EthscriptionTransactionBuilder
   def self.build_create_calldata(operation)
     # Get function selector as binary
     function_sig = Eth::Util.keccak256(
-      'createEthscription((bytes32,bytes32,address,bytes,string,string,string,bool,bool,(string,string,string,uint256,uint256,uint256)))'
+      'createEthscription((bytes32,bytes32,address,bytes,string,string,string,bool,(string,string,string,uint256,uint256,uint256)))'
     )[0...4].b
 
     # Parse mimetype
@@ -81,11 +81,13 @@ class EthscriptionTransactionBuilder
     # decoded_data only decodes base64, otherwise returns data as-is (preserving percent-encoding)
     # TODO: Decode percent encoding?
     raw_content = data_uri.decoded_data.b
-    was_base64 = data_uri.base64?
 
     # Convert hex strings to binary for ABI encoding
     tx_hash_bin = hex_to_bin(operation[:transaction_hash])
     owner_bin = address_to_bin(operation[:initial_owner])
+
+    # Extract token params if this is a token operation
+    token_params = extract_token_params(operation[:content_uri])
 
     # Encode parameters with proper binary values
     params = [
@@ -96,13 +98,12 @@ class EthscriptionTransactionBuilder
       mimetype.b,                              # string
       media_type.to_s.b,                       # string
       mime_subtype.to_s.b,                     # string
-      was_base64,                              # bool wasBase64
       operation[:esip6] || false,              # bool esip6
-      ['', '', '', 0, 0, 0]                   # TokenParams tuple
+      token_params                             # TokenParams tuple
     ]
 
     encoded = Eth::Abi.encode(
-      ['(bytes32,bytes32,address,bytes,string,string,string,bool,bool,(string,string,string,uint256,uint256,uint256))'],
+      ['(bytes32,bytes32,address,bytes,string,string,string,bool,(string,string,string,uint256,uint256,uint256))'],
       [params]
     )
     # binding.irb if operation[:transaction_hash] == '0x3ee220285361b903eef2e05a7d4d5379a03db81868d350bcb3710cc55821d278'
@@ -179,5 +180,52 @@ class EthscriptionTransactionBuilder
     # Ensure 20 bytes (40 hex chars)
     clean_hex = clean_hex.rjust(40, '0')[-40..]
     [clean_hex].pack('H*')
+  end
+
+  # Extract token parameters from content URI if it's a token operation
+  def self.extract_token_params(content_uri)
+    # Default empty token params (with binary strings)
+    default_params = [''.b, ''.b, ''.b, 0, 0, 0]
+
+    return default_params unless content_uri
+
+    # Try to parse JSON from data URI
+    # Expected formats:
+    # Deploy: data:,{"p":"erc-20","op":"deploy","tick":"eths","max":"21000000","lim":"1000"}
+    # Mint: data:,{"p":"erc-20","op":"mint","tick":"eths","id":"1","amt":"1000"}
+
+    if content_uri.start_with?('data:,{')
+      begin
+        json_str = content_uri[6..-1] # Remove 'data:,'
+        data = JSON.parse(json_str)
+
+        op = (data['op'] || '').to_s.b
+        protocol = (data['p'] || '').to_s.b
+        tick = (data['tick'] || '').to_s.b
+
+        case data['op']
+        when 'deploy'
+          max = (data['max'] || 0).to_i
+          lim = (data['lim'] || 0).to_i
+          [op, protocol, tick, max, lim, 0]
+        when 'mint'
+          amt = (data['amt'] || 0).to_i
+          # For mint operations, we might store id in max field for reference
+          id = (data['id'] || 0).to_i
+          [op, protocol, tick, id, 0, amt]
+        else
+          # Unknown op but has protocol/tick
+          if protocol.present? || tick.present?
+            [op, protocol, tick, 0, 0, 0]
+          else
+            default_params
+          end
+        end
+      rescue JSON::ParserError
+        default_params
+      end
+    else
+      default_params
+    end
   end
 end

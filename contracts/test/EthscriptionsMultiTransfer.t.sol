@@ -170,7 +170,8 @@ contract EthscriptionsMultiTransferTest is TestSetup {
         // Check JSON contains expected fields (ethscription #11 because of genesis ethscriptions)
         assertTrue(contains(json, '"name":"Ethscription #11"'), "Should have name");
         assertTrue(contains(json, '"description":"Ethscription #11 created by'), "Should have description");
-        assertTrue(contains(json, '"image":"data:text/plain,Test Content 1"'), "Should have image");
+        assertTrue(contains(json, '"animation_url":"data:text/html;base64,'), "Should have HTML viewer for text");
+        assertFalse(contains(json, '"image"'), "Should not have image field for text content");
         assertTrue(contains(json, '"attributes":['), "Should have attributes array");
 
         // Check for specific attributes
@@ -207,11 +208,12 @@ contract EthscriptionsMultiTransferTest is TestSetup {
         bytes memory decodedJson = Base64.decode(string(base64Part));
         string memory json = string(decodedJson);
 
-        // Should contain the content in the image field
+        // Should contain HTML viewer in animation_url field for text content
         assertTrue(
-            contains(json, '"image":"data:text/plain,This is a test content that will be compressed"'),
-            "Should have content in image"
+            contains(json, '"animation_url":"data:text/html;base64,'),
+            "Should have HTML viewer for text"
         );
+        assertFalse(contains(json, '"image"'), "Should not have image field for text content");
     }
 
     function test_TokenURI_AllAttributes() public {
@@ -224,7 +226,7 @@ contract EthscriptionsMultiTransferTest is TestSetup {
         string memory json = string(decodedJson);
 
         // Check all expected attributes
-        string[12] memory expectedTraits = [
+        string[11] memory expectedTraits = [
             "Ethscription Number",
             "Creator",
             "Initial Owner",
@@ -233,7 +235,6 @@ contract EthscriptionsMultiTransferTest is TestSetup {
             "Media Type",
             "MIME Subtype",
             "ESIP-6",
-            "Was Base64",
             "L1 Block Number",
             "L2 Block Number",
             "Created At"

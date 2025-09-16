@@ -184,7 +184,8 @@ class BlockValidator
   def verify_ethscription_storage(creation, l1_block_num, block_tag)
     tx_hash = creation[:tx_hash]
 
-    stored = StorageReader.get_ethscription(tx_hash, block_tag: block_tag)
+    # Use get_ethscription_with_content to fetch both metadata and content
+    stored = StorageReader.get_ethscription_with_content(tx_hash, block_tag: block_tag)
     @storage_checks_performed += 1
 
     if stored.nil?
@@ -207,10 +208,29 @@ class BlockValidator
       @errors << "Storage L1 block mismatch for #{tx_hash}: stored=#{stored[:l1_block_number]}, expected=#{l1_block_num}"
     end
 
-    # Verify content_uri - CRITICAL field, must match exactly
-    # if stored[:content_uri] != creation[:content_uri]
-    #   @errors << "Storage content_uri mismatch for #{tx_hash}: stored length=#{stored[:content_uri]&.length}, expected length=#{creation[:content_uri]&.length}"
-    # end
+    # Verify content - compare the actual content bytes
+    if creation[:content]
+      # API provides decoded content, contract provides raw bytes
+      if stored[:content] != creation[:content]
+        @errors << "Storage content mismatch for #{tx_hash}: stored length=#{stored[:content]&.length}, expected length=#{creation[:content]&.length}"
+      end
+    elsif creation[:b64_content]
+      # If we only have b64_content, decode it and compare
+      expected_content = Base64.decode64(creation[:b64_content])
+      if stored[:content] != expected_content
+        @errors << "Storage content mismatch for #{tx_hash}: stored length=#{stored[:content]&.length}, expected length=#{expected_content&.length}"
+      end
+    end
+
+    # Verify content_uri_hash - this is the hash of the original content URI
+    stored_uri_hash = stored[:content_uri_hash]&.downcase&.delete_prefix('0x')
+    if creation[:content_uri]
+      # Hash the content_uri from the API to compare
+      expected_uri_hash = Digest::SHA256.hexdigest(creation[:content_uri]).downcase
+      if stored_uri_hash != expected_uri_hash
+        @errors << "Storage content_uri_hash mismatch for #{tx_hash}: stored=#{stored_uri_hash}, expected=#{expected_uri_hash}"
+      end
+    end
 
     # Verify content_sha - always present in API, must match exactly
     stored_sha = stored[:content_sha]&.downcase&.delete_prefix('0x')

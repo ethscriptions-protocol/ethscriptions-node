@@ -81,7 +81,6 @@ contract EthscriptionsProverTest is TestSetup {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            wasBase64: false,
             esip6: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "deploy",
@@ -104,7 +103,6 @@ contract EthscriptionsProverTest is TestSetup {
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
-            wasBase64: false,
             esip6: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "mint",

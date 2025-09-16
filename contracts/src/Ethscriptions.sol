@@ -28,7 +28,6 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         string mimetype;         // Full MIME type (e.g., "text/plain")
         string mediaType;        // e.g., "text", "image"
         string mimeSubtype;      // e.g., "plain", "png"
-        bool wasBase64;          // Whether the original data URI was base64 encoded
         bool esip6;
     }
 
@@ -67,7 +66,6 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         string mimetype;
         string mediaType;
         string mimeSubtype;
-        bool wasBase64;          // Whether the original data URI was base64 encoded
         bool esip6;
         TokenParams tokenParams;  // Token operation data (optional)
     }
@@ -79,10 +77,10 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     // TODO: show something for text
     
     /// @dev Content SHA => ContentData (stores actual content and metadata)
-    mapping(bytes32 => ContentData) internal _contentBySha;
+    mapping(bytes32 => ContentData) public contentBySha;
 
     /// @dev Content URI hash => exists (for protocol uniqueness check)
-    mapping(bytes32 => bool) internal _contentUriExists;
+    mapping(bytes32 => bool) public contentUriExists;
     
     /// @dev Total number of ethscriptions created
     uint256 public totalSupply;
@@ -162,7 +160,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         if (_ethscriptionExists(params.transactionHash)) revert EthscriptionAlreadyExists();
 
         // Check protocol uniqueness using content URI hash
-        if (_contentUriExists[params.contentUriHash]) {
+        if (contentUriExists[params.contentUriHash]) {
             if (!params.esip6) revert DuplicateContentUri();
         }
 
@@ -170,7 +168,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         bytes32 contentSha = _storeContent(params.content);
 
         // Mark content URI as used
-        _contentUriExists[params.contentUriHash] = true;
+        contentUriExists[params.contentUriHash] = true;
 
         ethscriptions[params.transactionHash] = Ethscription({
             content: ContentInfo({
@@ -179,7 +177,6 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
                 mimetype: params.mimetype,
                 mediaType: params.mediaType,
                 mimeSubtype: params.mimeSubtype,
-                wasBase64: params.wasBase64,
                 esip6: params.esip6
             }),
             creator: creator,
@@ -214,7 +211,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             params.initialOwner,
             contentSha,
             tokenId,
-            _contentBySha[contentSha].pointers.length
+            contentBySha[contentSha].pointers.length
         );
 
         // Handle token operations - delegate all logic to TokenManager
@@ -326,7 +323,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     }
     
     function ownerOf(bytes32 transactionHash) external view requireExists(transactionHash) returns (address) {
-        Ethscription memory etsc = ethscriptions[transactionHash];
+        Ethscription storage etsc = ethscriptions[transactionHash];
         uint256 tokenId = etsc.ethscriptionNumber;
         // This will revert if the token is burned (has no owner)
         return ownerOf(tokenId);
@@ -339,17 +336,50 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         require(_ethscriptionExists(txHash), "Token does not exist");
         Ethscription storage etsc = ethscriptions[txHash];
 
-        // Build the JSON metadata
-        string memory json = string.concat(
+        // Build common parts of the JSON
+        string memory jsonStart = string.concat(
             '{"name":"Ethscription #',
             tokenId.toString(),
             '","description":"Ethscription #',
             tokenId.toString(),
             ' created by ',
             etsc.creator.toHexString(),
-            '","image":"',
-            _getContentDataURI(tokenIdToTransactionHash[tokenId]).escapeJSON(),
-            '","attributes":',
+            '",'
+        );
+
+        string memory mediaField;
+        if (etsc.content.mimetype.startsWith("image/")) {
+            // Image content: wrap in SVG for pixel-perfect rendering
+            string memory imageDataUri = _getContentDataURI(txHash);
+            string memory svg = _wrapImageInSVG(imageDataUri);
+            string memory svgDataUri = _constructDataURI("image/svg+xml", bytes(svg));
+            mediaField = string.concat(
+                '"image":"',
+                svgDataUri.escapeJSON(),
+                '"'
+            );
+        } else {
+            // Non-image content: use animation_url
+            string memory animationUrl;
+            if (etsc.content.mimetype.eq("text/html")) {
+                // HTML passes through directly but always as base64 for safety
+                animationUrl = _getHtmlDataURI(txHash);
+            } else {
+                // Everything else (including application/json) uses the HTML viewer
+                animationUrl = _getTextViewerDataURI(txHash);
+            }
+
+            mediaField = string.concat(
+                '"animation_url":"',
+                animationUrl.escapeJSON(),
+                '"'
+            );
+        }
+
+        string memory json = string.concat(
+            jsonStart,
+            mediaField,
+            ',"attributes":',
             _getAttributes(etsc),
             '}'
         );
@@ -383,9 +413,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             '"},{"trait_type":"MIME Subtype","value":"',
             etsc.content.mimeSubtype.escapeJSON(),
             '"},{"trait_type":"ESIP-6","value":"',
-            etsc.content.esip6 ? "true" : "false",
-            '"},{"trait_type":"Was Base64","value":"',
-            etsc.content.wasBase64 ? "true" : "false"
+            etsc.content.esip6 ? "true" : "false"
         );
 
         string memory part3 = string.concat(
@@ -401,36 +429,85 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         return string.concat(part1, part2, part3);
     }
 
-    /// @dev Helper function to get content as data URI
-    function _getContentDataURI(bytes32 txHash) internal view returns (string memory) {
-        Ethscription memory etsc = ethscriptions[txHash];
-        ContentData storage contentData = _contentBySha[etsc.content.contentSha];
+    /// @dev Helper function to read content for an ethscription
+    function getEthscriptionContent(bytes32 txHash) public view requireExists(txHash) returns (bytes memory) {
+        Ethscription storage etsc = ethscriptions[txHash];
+        ContentData storage contentData = contentBySha[etsc.content.contentSha];
         require(contentData.contentSha != bytes32(0), "No content stored");
 
-        bytes memory content;
-        if (contentData.size > 0) {
-            content = _readFromPointers(contentData.pointers);
-        }
-        // For empty content, content remains empty bytes
+        return _readFromPointers(contentData.pointers);
+    }
 
-        // Use the same encoding as the original data URI
-        if (etsc.content.wasBase64) {
-            return string.concat(
-                "data:",
-                etsc.content.mimetype,
-                ";base64,",
-                Base64.encode(content)
-            );
-        } else {
-            // For non-base64, we need to preserve the original encoding
-            // This is handled by the node which passes the correctly encoded content
-            return string.concat(
-                "data:",
-                etsc.content.mimetype,
-                ",",
-                string(content)
-            );
-        }
+    /// @dev Helper function to construct a base64-encoded data URI
+    function _constructDataURI(string memory mimetype, bytes memory content) internal pure returns (string memory) {
+        return string.concat(
+            "data:",
+            mimetype,
+            ";base64,",
+            Base64.encode(content)
+        );
+    }
+
+    /// @dev Helper function to wrap image in SVG for pixel-perfect rendering
+    function _wrapImageInSVG(string memory imageDataUri) internal pure returns (string memory) {
+        // SVG wrapper that enforces pixelated/nearest-neighbor scaling for pixel art
+        // Uses a 1200x1200 viewport with the image centered and scaled to fit
+        return string.concat(
+            '<svg width="1200" height="1200" viewBox="0 0 1200 1200" version="1.2" xmlns="http://www.w3.org/2000/svg" style="background-image:url(',
+            imageDataUri,
+            ');background-repeat:no-repeat;background-size:contain;background-position:center;image-rendering:-webkit-optimize-contrast;image-rendering:-moz-crisp-edges;image-rendering:pixelated;"></svg>'
+        );
+    }
+
+    /// @dev Helper function to get content as data URI
+    function _getContentDataURI(bytes32 txHash) internal view returns (string memory) {
+        Ethscription storage etsc = ethscriptions[txHash];
+        bytes memory content = getEthscriptionContent(txHash);
+
+        // Always use base64 for safety and consistency
+        return _constructDataURI(etsc.content.mimetype, content);
+    }
+
+    /// @dev Helper function to generate minimal HTML viewer for text content
+    function _getTextViewerHTML(string memory encodedPayload, string memory mimetype) internal pure returns (string memory) {
+        // Ultra-minimal HTML with inline styles
+        // No headers/titles, just the content centered in viewport
+        return string.concat(
+            '<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>',
+            '<style>body{margin:0;padding:16px;background:#0b0b0c;color:#f5f5f5;font-family:monospace;display:flex;justify-content:center;align-items:center;min-height:100vh}',
+            'pre{margin:0;padding:16px;background:rgba(0,0,0,0.5);border-radius:8px;overflow:auto;white-space:pre-wrap;word-break:break-word;max-height:90vh;line-height:1.4;font-size:14px}</style></head>',
+            '<body><pre id="o"></pre><script>',
+            'const p="', encodedPayload, '";',
+            'const m="', mimetype.escapeJSON(), '";',  // Escape to prevent breaking out of JS string
+            'function d(b){try{return decodeURIComponent(atob(b).split("").map(c=>"%"+("00"+c.charCodeAt(0).toString(16)).slice(-2)).join(""))}catch{return null}}',
+            'const r=d(p)||"";let t=r;',
+            'try{const j=JSON.parse(r);t=JSON.stringify(j,null,2)}catch{}',
+            'document.getElementById("o").textContent=t||"(empty)";',
+            '</script></body></html>'
+        );
+    }
+
+    /// @dev Helper function to get text content as HTML viewer data URI
+    function _getTextViewerDataURI(bytes32 txHash) internal view returns (string memory) {
+        Ethscription memory etsc = ethscriptions[txHash];
+        bytes memory content = getEthscriptionContent(txHash);
+
+        // Base64 encode the content for embedding in HTML
+        string memory encodedContent = Base64.encode(content);
+
+        // Generate HTML with embedded content
+        string memory html = _getTextViewerHTML(encodedContent, etsc.content.mimetype);
+
+        // Return as base64-encoded HTML data URI
+        return _constructDataURI("text/html", bytes(html));
+    }
+
+    /// @dev Helper function to get HTML content as base64 data URI
+    function _getHtmlDataURI(bytes32 txHash) internal view returns (string memory) {
+        bytes memory content = getEthscriptionContent(txHash);
+
+        // Always return HTML as base64 for safety
+        return _constructDataURI("text/html", content);
     }
 
     /// @notice Get current owner of an ethscription
@@ -451,14 +528,14 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
 
     /// @notice Get the number of content pointers for an ethscription
     function getContentPointerCount(bytes32 transactionHash) external view requireExists(transactionHash) returns (uint256) {
-        Ethscription memory etsc = ethscriptions[transactionHash];
-        return _contentBySha[etsc.content.contentSha].pointers.length;
+        Ethscription storage etsc = ethscriptions[transactionHash];
+        return contentBySha[etsc.content.contentSha].pointers.length;
     }
 
     /// @notice Get all content pointers for an ethscription
     function getContentPointers(bytes32 transactionHash) external view requireExists(transactionHash) returns (address[] memory) {
-        Ethscription memory etsc = ethscriptions[transactionHash];
-        return _contentBySha[etsc.content.contentSha].pointers;
+        Ethscription storage etsc = ethscriptions[transactionHash];
+        return contentBySha[etsc.content.contentSha].pointers;
     }
 
     /// @notice Read a specific chunk of content
@@ -466,8 +543,8 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     /// @param index The chunk index to read
     /// @return The chunk data
     function readChunk(bytes32 transactionHash, uint256 index) external view requireExists(transactionHash) returns (bytes memory) {
-        Ethscription memory etsc = ethscriptions[transactionHash];
-        ContentData storage contentData = _contentBySha[etsc.content.contentSha];
+        Ethscription storage etsc = ethscriptions[transactionHash];
+        ContentData storage contentData = contentBySha[etsc.content.contentSha];
         require(index < contentData.pointers.length, "Chunk index out of bounds");
         return SSTORE2.read(contentData.pointers[index]);
     }
@@ -480,7 +557,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         contentSha = sha256(content);
 
         // Check if content already exists
-        ContentData storage existingContent = _contentBySha[contentSha];
+        ContentData storage existingContent = contentBySha[contentSha];
 
         // Check if content was already stored (contentSha will be non-zero for stored content)
         if (existingContent.contentSha != bytes32(0)) {
@@ -514,7 +591,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         // For empty content, pointers remains an empty array
 
         // Store content data (only raw bytes info, no metadata)
-        _contentBySha[contentSha] = ContentData({
+        contentBySha[contentSha] = ContentData({
             contentSha: contentSha,
             pointers: pointers,
             size: contentLength
@@ -525,6 +602,10 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
 
     /// @dev Read content from multiple SSTORE2 pointers
     function _readFromPointers(address[] storage pointers) private view returns (bytes memory) {
+        if (pointers.length == 0) {
+            return "";
+        }
+
         if (pointers.length == 1) {
             return SSTORE2.read(pointers[0]);
         }

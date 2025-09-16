@@ -67,7 +67,7 @@ abstract contract TestSetup is Test {
         string memory mimetype = "text/plain";
         string memory mediaType = "text";
         string memory mimeSubtype = "plain";
-        bool wasBase64 = false;
+        bool isBase64 = false;
 
         // Check if data URI and parse
         if (contentUriBytes.length > 5) {
@@ -84,12 +84,12 @@ abstract contract TestSetup is Test {
                 // Check for base64 in metadata first
                 for (uint256 i = 5; i < commaIdx; i++) {
                     if (contentUriBytes[i] == 'b' && i + 5 < commaIdx) {
-                        wasBase64 = (contentUriBytes[i+1] == 'a' &&
+                        isBase64 = (contentUriBytes[i+1] == 'a' &&
                                     contentUriBytes[i+2] == 's' &&
                                     contentUriBytes[i+3] == 'e' &&
                                     contentUriBytes[i+4] == '6' &&
                                     contentUriBytes[i+5] == '4');
-                        if (wasBase64) break;
+                        if (isBase64) break;
                     }
                 }
 
@@ -100,7 +100,7 @@ abstract contract TestSetup is Test {
                 }
 
                 // If base64, decode it to get actual raw bytes
-                if (wasBase64) {
+                if (isBase64) {
                     content = Base64.decode(string(rawContent));
                 } else {
                     content = rawContent;
@@ -152,7 +152,6 @@ abstract contract TestSetup is Test {
             mimetype: mimetype,
             mediaType: mediaType,
             mimeSubtype: mimeSubtype,
-            wasBase64: wasBase64,
             esip6: esip6,
             tokenParams: Ethscriptions.TokenParams({
                 op: "",

@@ -1,21 +1,27 @@
-require 'eth'
-
 class StorageReader
-  ETHSCRIPTIONS_ADDRESS = '0x3300000000000000000000000000000000000001'
+  ETHSCRIPTIONS_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
 
-  # Define the Ethscription struct ABI
+  # Define the nested ContentInfo struct
+  CONTENT_INFO_STRUCT = {
+    'components' => [
+      { 'name' => 'contentUriHash', 'type' => 'bytes32' },
+      { 'name' => 'contentSha', 'type' => 'bytes32' },
+      { 'name' => 'mimetype', 'type' => 'string' },
+      { 'name' => 'mediaType', 'type' => 'string' },
+      { 'name' => 'mimeSubtype', 'type' => 'string' },
+      { 'name' => 'esip6', 'type' => 'bool' }
+    ],
+    'type' => 'tuple'
+  }
+
+  # Define the Ethscription struct ABI with nested ContentInfo
   ETHSCRIPTION_STRUCT_ABI = {
     'components' => [
-      { 'name' => 'contentSha', 'type' => 'bytes32' },
+      CONTENT_INFO_STRUCT,  # ContentInfo content
       { 'name' => 'creator', 'type' => 'address' },
       { 'name' => 'initialOwner', 'type' => 'address' },
       { 'name' => 'previousOwner', 'type' => 'address' },
       { 'name' => 'ethscriptionNumber', 'type' => 'uint256' },
-      { 'name' => 'mimetype', 'type' => 'string' },
-      { 'name' => 'mediaType', 'type' => 'string' },
-      { 'name' => 'mimeSubtype', 'type' => 'string' },
-      { 'name' => 'esip6', 'type' => 'bool' },
-      { 'name' => 'isCompressed', 'type' => 'bool' },
       { 'name' => 'createdAt', 'type' => 'uint256' },
       { 'name' => 'l1BlockNumber', 'type' => 'uint64' },
       { 'name' => 'l2BlockNumber', 'type' => 'uint64' },
@@ -38,11 +44,22 @@ class StorageReader
       ]
     },
     {
+      'name' => 'getEthscriptionContent',
+      'type' => 'function',
+      'stateMutability' => 'view',
+      'inputs' => [
+        { 'name' => 'transactionHash', 'type' => 'bytes32' }
+      ],
+      'outputs' => [
+        { 'name' => '', 'type' => 'bytes' }
+      ]
+    },
+    {
       'name' => 'ownerOf',
       'type' => 'function',
       'stateMutability' => 'view',
       'inputs' => [
-        { 'name' => 'tokenId', 'type' => 'uint256' }
+        { 'name' => 'transactionHash', 'type' => 'bytes32' }
       ],
       'outputs' => [
         { 'name' => '', 'type' => 'address' }
@@ -60,6 +77,29 @@ class StorageReader
   ]
 
   class << self
+    def get_ethscription_with_content(tx_hash, block_tag: 'latest')
+      # Fetch both ethscription data and content in parallel
+      threads = []
+      ethscription_data = nil
+      content_data = nil
+
+      threads << Thread.new do
+        ethscription_data = get_ethscription(tx_hash, block_tag: block_tag)
+      end
+
+      threads << Thread.new do
+        content_data = get_ethscription_content(tx_hash, block_tag: block_tag)
+      end
+
+      threads.each(&:join)
+
+      raise StandardError, "Ethscription not found: #{tx_hash}" unless ethscription_data
+
+      # Add content to the ethscription data
+      ethscription_data[:content] = content_data
+      ethscription_data
+    end
+
     def get_ethscription(tx_hash, block_tag: 'latest')
       # Ensure tx_hash is properly formatted as bytes32
       tx_hash_bytes32 = format_bytes32(tx_hash)
@@ -75,30 +115,60 @@ class StorageReader
       return nil if result.nil? || result == '0x' || result == '0x0'
 
       # Decode using Eth::Abi
-      types = ['(bytes32,address,address,address,uint256,string,string,string,bool,bool,uint256,uint64,uint64,bytes32)']
+      # Updated types for nested struct: ContentInfo is a tuple within the main tuple
+      types = ['((bytes32,bytes32,string,string,string,bool),address,address,address,uint256,uint256,uint64,uint64,bytes32)']
       decoded = Eth::Abi.decode(types, result)
 
       # The struct is returned as an array within an array
       ethscription_data = decoded[0]
+      content_info = ethscription_data[0]  # Nested ContentInfo struct
 
       {
-        content_sha: '0x' + ethscription_data[0].unpack1('H*'),
+        # ContentInfo fields
+        content_uri_hash: '0x' + content_info[0].unpack1('H*'),
+        content_sha: '0x' + content_info[1].unpack1('H*'),
+        mimetype: content_info[2],
+        media_type: content_info[3],
+        mime_subtype: content_info[4],
+        esip6: content_info[5],
+
+        # Main Ethscription fields
         creator: Eth::Address.new(ethscription_data[1]).to_s,
         initial_owner: Eth::Address.new(ethscription_data[2]).to_s,
         previous_owner: Eth::Address.new(ethscription_data[3]).to_s,
         ethscription_number: ethscription_data[4],
-        mimetype: ethscription_data[5],
-        media_type: ethscription_data[6],
-        mime_subtype: ethscription_data[7],
-        esip6: ethscription_data[8],
-        is_compressed: ethscription_data[9],
-        created_at: ethscription_data[10],
-        l1_block_number: ethscription_data[11],
-        l2_block_number: ethscription_data[12],
-        l1_block_hash: '0x' + ethscription_data[13].unpack1('H*')
+        created_at: ethscription_data[5],
+        l1_block_number: ethscription_data[6],
+        l2_block_number: ethscription_data[7],
+        l1_block_hash: '0x' + ethscription_data[8].unpack1('H*')
       }
     rescue => e
       Rails.logger.error "Failed to get ethscription #{tx_hash}: #{e.message}"
+      Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
+      nil
+    end
+
+    def get_ethscription_content(tx_hash, block_tag: 'latest')
+      # Ensure tx_hash is properly formatted as bytes32
+      tx_hash_bytes32 = format_bytes32(tx_hash)
+
+      # Build function signature and encode parameters
+      function_sig = Eth::Util.keccak256('getEthscriptionContent(bytes32)')[0...4]
+
+      # Encode the parameter (bytes32 is already 32 bytes)
+      calldata = function_sig + [tx_hash_bytes32].pack('H*')
+
+      # Make the eth_call
+      result = eth_call('0x' + calldata.unpack1('H*'), block_tag)
+      return nil if result.nil? || result == '0x' || result == '0x0'
+
+      # Decode using Eth::Abi - returns bytes
+      decoded = Eth::Abi.decode(['bytes'], result)
+
+      # Return the raw bytes content
+      decoded[0]
+    rescue => e
+      Rails.logger.error "Failed to get ethscription content #{tx_hash}: #{e.message}"
       Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
       nil
     end
