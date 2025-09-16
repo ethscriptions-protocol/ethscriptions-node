@@ -12,7 +12,14 @@ import "forge-std/console.sol";
 /// @notice Temporary contract that extends Ethscriptions with genesis-specific creation
 /// @dev Used only during genesis, then replaced with the real Ethscriptions contract
 contract GenesisEthscriptions is Ethscriptions {
-    
+
+    /// @notice Store a genesis ethscription transaction hash for later event emission
+    /// @dev Internal function only used during genesis setup
+    /// @param transactionHash The transaction hash to store
+    function _storePendingGenesisEvent(bytes32 transactionHash) internal {
+        pendingGenesisEvents.push(transactionHash);
+    }
+
     /// @notice Create an ethscription with all values explicitly set for genesis
     function createGenesisEthscription(
         CreateEthscriptionParams calldata params,
@@ -71,14 +78,10 @@ contract GenesisEthscriptions is Ethscriptions {
             _mint(params.initialOwner, tokenId);
         }
 
-        emit EthscriptionCreated(
-            params.transactionHash,
-            creator,
-            params.initialOwner,
-            contentSha,
-            tokenId,
-            contentBySha[contentSha].pointers.length
-        );
+        // Store the transaction hash so all events can be emitted later
+        // The emission logic in _emitPendingGenesisEvents will figure out
+        // what events to emit based on the ethscription data
+        _storePendingGenesisEvent(params.transactionHash);
 
         // Skip token handling for genesis
     }

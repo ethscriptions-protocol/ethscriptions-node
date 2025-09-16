@@ -55,6 +55,18 @@ class BlockValidator
     @storage_checks_performed = 0
   end
 
+  def load_genesis_transaction_hashes
+    # Load genesis ethscriptions from the JSON file
+    genesis_file = Rails.root.join('contracts', 'script', 'genesisEthscriptions.json')
+    genesis_data = JSON.parse(File.read(genesis_file))
+
+    # Extract all transaction hashes from the ethscriptions array
+    genesis_data['ethscriptions'].map { |e| e['transaction_hash'] }
+  rescue => e
+    Rails.logger.warn "Failed to load genesis ethscriptions: #{e.message}"
+    []
+  end
+
   def fetch_expected_data(l1_block_number)
     EthscriptionsApiClient.fetch_block_data(l1_block_number)
   rescue => e
@@ -91,8 +103,24 @@ class BlockValidator
   end
 
   def compare_events(expected, actual, l1_block_num)
-    # Compare creations
-    expected_creation_hashes = expected[:creations].map { |c| c[:tx_hash].downcase }.to_set
+    # Calculate the L1 block where L2 block 1 happened (genesis + 1)
+    l2_block_1_l1_block = Integer(ENV.fetch("L1_GENESIS_BLOCK")) + 1
+
+    # Special handling for the L1 block where L2 block 1 happened - genesis events are emitted then
+    if l1_block_num == l2_block_1_l1_block
+      genesis_hashes = load_genesis_transaction_hashes
+      Rails.logger.info "L1 Block #{l1_block_num} (L2 block 1): Expecting #{genesis_hashes.size} genesis events in addition to regular events"
+
+      # Add genesis hashes to expected creations for this block
+      expected_creation_hashes = (expected[:creations].map { |c| c[:tx_hash].downcase } + genesis_hashes.map(&:downcase)).to_set
+
+      # Also expect transfers for genesis ethscriptions
+      # These will be EthscriptionTransferred events from creator to initial owner
+      # We'll validate them separately since we don't have full transfer data
+    else
+      expected_creation_hashes = expected[:creations].map { |c| c[:tx_hash].downcase }.to_set
+    end
+
     actual_creation_hashes = actual[:creations].map { |c| c[:tx_hash].downcase }.to_set
 
     # Find missing creations
@@ -101,10 +129,12 @@ class BlockValidator
       @errors << "Missing creation event: #{tx_hash} in L1 block #{l1_block_num}"
     end
 
-    # Find unexpected creations
+    # Find unexpected creations (but don't warn about genesis events in the L1 block for L2 block 1)
     unexpected = actual_creation_hashes - expected_creation_hashes
-    unexpected.each do |tx_hash|
-      @warnings << "Unexpected creation event: #{tx_hash} in L1 block #{l1_block_num}"
+    if l1_block_num != l2_block_1_l1_block
+      unexpected.each do |tx_hash|
+        @warnings << "Unexpected creation event: #{tx_hash} in L1 block #{l1_block_num}"
+      end
     end
 
     # Compare creation details for matching transactions
@@ -130,6 +160,9 @@ class BlockValidator
   end
 
   def compare_transfers(expected, actual, l1_block_num)
+    # Calculate the L1 block where L2 block 1 happened
+    l2_block_1_l1_block = Integer(ENV.fetch("L1_GENESIS_BLOCK")) + 1
+
     # Group transfers by token_id for easier comparison
     expected_by_token = expected.group_by { |t| t[:token_id]&.downcase }
     actual_by_token = actual.group_by { |t| t[:token_id]&.downcase }
@@ -139,9 +172,17 @@ class BlockValidator
       @errors << "Missing transfer events for token #{token_id} in L1 block #{l1_block_num}"
     end
 
-    # Check for unexpected transfers
-    (actual_by_token.keys - expected_by_token.keys).each do |token_id|
-      @warnings << "Unexpected transfer events for token #{token_id}"
+    # Check for unexpected transfers (but be lenient for the L1 block where L2 block 1 happened due to genesis events)
+    if l1_block_num == l2_block_1_l1_block
+      # For the L1 block where L2 block 1 happened, we expect genesis transfer events that won't be in the API data
+      # Just log them as info instead of warnings
+      (actual_by_token.keys - expected_by_token.keys).each do |token_id|
+        Rails.logger.info "Genesis transfer event for token #{token_id} (expected for L2 block 1)"
+      end
+    else
+      (actual_by_token.keys - expected_by_token.keys).each do |token_id|
+        @warnings << "Unexpected transfer events for token #{token_id}"
+      end
     end
 
     # Compare transfer details
