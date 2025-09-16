@@ -68,8 +68,13 @@ class EthscriptionTransactionBuilder
     )[0...4].b
 
     # Parse mimetype
-    mimetype = operation[:mimetype] || ''
-    media_type, mime_subtype = mimetype.split('/', 2)
+    mimetype = operation[:mimetype].to_s
+    
+    # TODO: Is this ultimately correct?
+    # See: 0xc8b009c31546acc7a9f7cbc22a8e968ea0562f7c9e7cf5b14f913d95e2cc6fc3
+    # Leaving for now to match old behavior
+    media_type = mimetype&.split('/')&.first
+    mime_subtype = mimetype&.split('/')&.last
 
     # Convert hex strings to binary for ABI encoding
     tx_hash_bin = hex_to_bin(operation[:transaction_hash])
@@ -79,10 +84,10 @@ class EthscriptionTransactionBuilder
     params = [
       tx_hash_bin,                            # bytes32 (binary)
       owner_bin,                               # address (binary)
-      operation[:content_uri].b,              # bytes
-      mimetype,                                # string
-      media_type || '',                       # string
-      mime_subtype || '',                     # string
+      operation[:content_uri].to_s.b,              # bytes
+      mimetype.b,                                # string
+      media_type.to_s.b,                       # string
+      mime_subtype.to_s.b,                     # string
       operation[:esip6] || false,             # bool
       operation[:esip7_compressed] || false,  # bool
       ['', '', '', 0, 0, 0]                   # TokenParams tuple
@@ -92,9 +97,12 @@ class EthscriptionTransactionBuilder
       ['(bytes32,address,bytes,string,string,string,bool,bool,(string,string,string,uint256,uint256,uint256))'],
       [params]
     )
-
+    # binding.irb if operation[:transaction_hash] == '0x3ee220285361b903eef2e05a7d4d5379a03db81868d350bcb3710cc55821d278'
     # Ensure binary encoding
     (function_sig + encoded).b
+  rescue => e
+    binding.irb
+    raise e
   end
 
   def self.build_transfer_calldata(operation)

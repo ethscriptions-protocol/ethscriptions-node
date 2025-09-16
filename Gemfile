@@ -55,7 +55,7 @@ gem "kaminari", "~> 1.2"
 
 gem "rack-cors", "~> 2.0"
 
-gem "eth", github: "0xFacet/eth.rb"
+gem "eth", github: "0xFacet/eth.rb", branch: "sync/v0.5.16-nohex"
 
 gem 'sorbet', :group => :development
 gem 'sorbet-runtime'

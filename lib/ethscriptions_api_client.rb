@@ -85,13 +85,16 @@ class EthscriptionsApiClient
         tx_hash = (item['transaction_hash'] || '').downcase
         creator = (item['creator'] || '').downcase
         initial_owner = (item['initial_owner'] || item['creator'] || '').downcase
-
+        # TODO: Put everything in here
         {
           tx_hash: tx_hash,
           creator: creator,
           initial_owner: initial_owner,
+          content_uri: item['content_uri'],
           content_sha: item['content_sha'],
           mimetype: item['mimetype'],
+          media_type: item['media_type'],
+          mime_subtype: item['mime_subtype'],
           block_number: item['block_number'],
           esip6: item['esip6'] || false
         }

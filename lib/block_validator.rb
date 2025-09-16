@@ -19,11 +19,15 @@ class BlockValidator
     # Get actual data from L2 events
     actual_events = aggregate_l2_events(l2_block_hashes)
 
+    # Historical block tag for reads as-of this L1 block’s L2 application
+    # Use EIP-1898 with blockHash for reorg-safety
+    historical_block_tag = l2_block_hashes.any? ? { blockHash: l2_block_hashes.last } : 'latest'
+
     # Compare events
     compare_events(expected, actual_events, l1_block_number)
 
     # Verify storage state
-    verify_storage_state(expected, l1_block_number)
+    verify_storage_state(expected, l1_block_number, historical_block_tag)
 
     # Build result
     ValidationResult.new(
@@ -74,6 +78,8 @@ class BlockValidator
         all_protocol_transfers.concat(data[:protocol_transfers])  # Ethscriptions protocol transfers
       rescue => e
         @warnings << "Failed to get receipts for block #{block_hash}: #{e.message}"
+        binding.irb
+        raise
       end
     end
 
@@ -165,20 +171,20 @@ class BlockValidator
     end
   end
 
-  def verify_storage_state(expected_data, l1_block_num)
+  def verify_storage_state(expected_data, l1_block_num, block_tag)
     # Verify each created ethscription exists in storage with correct data
     expected_data[:creations].each do |creation|
-      verify_ethscription_storage(creation, l1_block_num)
+      verify_ethscription_storage(creation, l1_block_num, block_tag)
     end
 
     # Verify ownership after transfers
-    verify_transfer_ownership(expected_data[:transfers])
+    verify_transfer_ownership(expected_data[:transfers], block_tag)
   end
 
-  def verify_ethscription_storage(creation, l1_block_num)
+  def verify_ethscription_storage(creation, l1_block_num, block_tag)
     tx_hash = creation[:tx_hash]
 
-    stored = StorageReader.get_ethscription(tx_hash)
+    stored = StorageReader.get_ethscription(tx_hash, block_tag: block_tag)
     @storage_checks_performed += 1
 
     if stored.nil?
@@ -201,13 +207,40 @@ class BlockValidator
       @errors << "Storage L1 block mismatch for #{tx_hash}: stored=#{stored[:l1_block_number]}, expected=#{l1_block_num}"
     end
 
-    # Verify mimetype if available
-    if creation[:mimetype] && stored[:mimetype] && stored[:mimetype] != creation[:mimetype]
-      @warnings << "Storage mimetype mismatch for #{tx_hash}: stored=#{stored[:mimetype]}, expected=#{creation[:mimetype]}"
+    # Verify content_uri - CRITICAL field, must match exactly
+    # if stored[:content_uri] != creation[:content_uri]
+    #   @errors << "Storage content_uri mismatch for #{tx_hash}: stored length=#{stored[:content_uri]&.length}, expected length=#{creation[:content_uri]&.length}"
+    # end
+
+    # Verify content_sha - always present in API, must match exactly
+    stored_sha = stored[:content_sha]&.downcase&.delete_prefix('0x')
+    expected_sha = creation[:content_sha].downcase.delete_prefix('0x')
+    if stored_sha != expected_sha
+      @errors << "Storage content_sha mismatch for #{tx_hash}: stored=#{stored[:content_sha]}, expected=#{creation[:content_sha]}"
+    end
+
+    # Verify mimetype - must match exactly
+    if stored[:mimetype] != creation[:mimetype]
+      @errors << "Storage mimetype mismatch for #{tx_hash}: stored=#{stored[:mimetype]}, expected=#{creation[:mimetype]}"
+    end
+
+    # Verify media_type - always present in API, must match exactly
+    if stored[:media_type] != creation[:media_type]
+      @errors << "Storage media_type mismatch for #{tx_hash}: stored=#{stored[:media_type]}, expected=#{creation[:media_type]}"
+    end
+
+    # Verify mime_subtype - must match exactly
+    if stored[:mime_subtype] != creation[:mime_subtype]
+      @errors << "Storage mime_subtype mismatch for #{tx_hash}: stored=#{stored[:mime_subtype]}, expected=#{creation[:mime_subtype]}"
+    end
+
+    # Verify esip6 flag - must match exactly (API returns boolean)
+    if stored[:esip6] != creation[:esip6]
+      @errors << "Storage esip6 mismatch for #{tx_hash}: stored=#{stored[:esip6]}, expected=#{creation[:esip6]}"
     end
   end
 
-  def verify_transfer_ownership(transfers)
+  def verify_transfer_ownership(transfers, block_tag)
     # Group transfers by token to get final owner
     final_owners = {}
 
@@ -219,7 +252,7 @@ class BlockValidator
     # Verify each token's final owner
     final_owners.each do |token_id, expected_owner|
       # First check if the ethscription exists in storage
-      ethscription = StorageReader.get_ethscription(token_id)
+      ethscription = StorageReader.get_ethscription(token_id, block_tag: block_tag)
 
       if ethscription.nil?
         # Token doesn't exist yet - this is expected if it hasn't been created
@@ -228,10 +261,11 @@ class BlockValidator
         next
       end
 
-      actual_owner = StorageReader.get_owner(token_id)
+      actual_owner = StorageReader.get_owner(token_id, block_tag: block_tag)
       @storage_checks_performed += 1
 
       if actual_owner.nil?
+        binding.irb
         @warnings << "Could not verify owner of token #{token_id}"
         next
       end
@@ -261,19 +295,27 @@ class ValidationResult
 
   def log_summary(logger = Rails.logger)
     if success
-      logger.info "✅ Block #{l1_block} validated successfully: " \
-                  "#{stats[:actual_creations]} creations, " \
-                  "#{stats[:actual_transfers]} transfers, " \
-                  "#{stats[:storage_checks]} storage checks"
+      if stats[:actual_creations].to_i > 0 || stats[:actual_transfers].to_i > 0 || stats[:storage_checks].to_i > 0
+        logger.info "✅ Block #{l1_block} validated successfully: " \
+                    "#{stats[:actual_creations]} creations, " \
+                    "#{stats[:actual_transfers]} transfers, " \
+                    "#{stats[:storage_checks]} storage checks"
+      end
     else
       logger.error "❌ Block #{l1_block} validation failed with #{errors.size} errors:"
       errors.first(5).each { |e| logger.error "  - #{e}" }
       logger.error "  ... and #{errors.size - 5} more errors" if errors.size > 5
+      binding.irb
+      raise "Validation failed"
+      exit 1
     end
 
     if warnings.any?
       logger.warn "⚠️  Block #{l1_block} has #{warnings.size} warnings:"
       warnings.first(3).each { |w| logger.warn "  - #{w}" }
+      binding.irb
+      raise "Validation failed"
+      exit 1
     end
   end
 

@@ -1,7 +1,7 @@
 class GenesisGenerator
   def generate_full_genesis_json(l1_network_name:, l1_genesis_block_number:)
     config = {
-      chainId: ChainIdManager.current_l2_chain_id,
+      chainId: 0xeeee,
       homesteadBlock: 0,
       eip150Block: 0,
       eip155Block: 0,

@@ -36,18 +36,17 @@ contract EthscriptionsBurnTest is TestSetup {
     }
     
     function testBurnViaTransferToAddressZero() public {
-        uint256 tokenId = uint256(testTxHash);
-        
+        uint256 tokenId = ethscriptions.getTokenId(testTxHash);
+
         // Verify alice owns the ethscription
         assertEq(ethscriptions.ownerOf(tokenId), alice);
         
-        // Alice burns the ethscription by transferring to address(0)
+        // Alice transfers the ethscription to address(0) (null ownership, not burn)
         vm.prank(alice);
         ethscriptions.transferFrom(alice, address(0), tokenId);
-        
-        // Verify the token is burned (ownerOf should revert)
-        vm.expectRevert();
-        ethscriptions.ownerOf(tokenId);
+
+        // Verify the token is now owned by address(0)
+        assertEq(ethscriptions.ownerOf(tokenId), address(0));
         
         // Verify the ethscription data still exists
         Ethscriptions.Ethscription memory etsc = ethscriptions.getEthscription(testTxHash);
@@ -56,18 +55,17 @@ contract EthscriptionsBurnTest is TestSetup {
     }
     
     function testBurnViaTransferEthscription() public {
-        uint256 tokenId = uint256(testTxHash);
-        
+        uint256 tokenId = ethscriptions.getTokenId(testTxHash);
+
         // Verify alice owns the ethscription
         assertEq(ethscriptions.ownerOf(tokenId), alice);
         
-        // Alice burns using transferEthscription function
+        // Alice transfers using transferEthscription function to address(0)
         vm.prank(alice);
         ethscriptions.transferEthscription(address(0), testTxHash);
-        
-        // Verify the token is burned
-        vm.expectRevert();
-        ethscriptions.ownerOf(tokenId);
+
+        // Verify the token is now owned by address(0)
+        assertEq(ethscriptions.ownerOf(tokenId), address(0));
         
         // Verify previousOwner was updated
         Ethscriptions.Ethscription memory etsc = ethscriptions.getEthscription(testTxHash);
@@ -75,8 +73,8 @@ contract EthscriptionsBurnTest is TestSetup {
     }
     
     function testBurnWithPreviousOwnerValidation() public {
-        uint256 tokenId = uint256(testTxHash);
-        
+        uint256 tokenId = ethscriptions.getTokenId(testTxHash);
+
         // First transfer from alice to bob
         vm.prank(alice);
         ethscriptions.transferFrom(alice, bob, tokenId);
@@ -86,13 +84,12 @@ contract EthscriptionsBurnTest is TestSetup {
         Ethscriptions.Ethscription memory etsc = ethscriptions.getEthscription(testTxHash);
         assertEq(etsc.previousOwner, alice);
         
-        // Bob burns with previous owner validation
+        // Bob transfers to address(0) with previous owner validation
         vm.prank(bob);
         ethscriptions.transferEthscriptionForPreviousOwner(address(0), testTxHash, alice);
-        
-        // Verify the token is burned
-        vm.expectRevert();
-        ethscriptions.ownerOf(tokenId);
+
+        // Verify the token is now owned by address(0)
+        assertEq(ethscriptions.ownerOf(tokenId), address(0));
         
         // Verify previousOwner was updated to bob
         etsc = ethscriptions.getEthscription(testTxHash);
@@ -100,8 +97,8 @@ contract EthscriptionsBurnTest is TestSetup {
     }
     
     function testCannotTransferBurnedToken() public {
-        uint256 tokenId = uint256(testTxHash);
-        
+        uint256 tokenId = ethscriptions.getTokenId(testTxHash);
+
         // Alice burns the token
         vm.prank(alice);
         ethscriptions.transferFrom(alice, address(0), tokenId);
@@ -113,8 +110,8 @@ contract EthscriptionsBurnTest is TestSetup {
     }
     
     function testBurnUpdatesBalances() public {
-        uint256 tokenId = uint256(testTxHash);
-        
+        uint256 tokenId = ethscriptions.getTokenId(testTxHash);
+
         // Check initial balance
         assertEq(ethscriptions.balanceOf(alice), 1);
         
@@ -129,8 +126,8 @@ contract EthscriptionsBurnTest is TestSetup {
     }
     
     function testOnlyOwnerCanBurn() public {
-        uint256 tokenId = uint256(testTxHash);
-        
+        uint256 tokenId = ethscriptions.getTokenId(testTxHash);
+
         // Bob tries to burn alice's token (should fail)
         vm.prank(bob);
         vm.expectRevert();
@@ -141,19 +138,16 @@ contract EthscriptionsBurnTest is TestSetup {
     }
     
     function testApprovedCanBurn() public {
-        uint256 tokenId = uint256(testTxHash);
-        
-        // Alice approves bob
+        // Approvals are not supported in our implementation
+        uint256 tokenId = ethscriptions.getTokenId(testTxHash);
+
+        // Alice tries to approve bob (should fail)
         vm.prank(alice);
+        vm.expectRevert("Approvals not supported");
         ethscriptions.approve(bob, tokenId);
-        
-        // Bob burns the token with approval
-        vm.prank(bob);
-        ethscriptions.transferFrom(alice, address(0), tokenId);
-        
-        // Verify the token is burned
-        vm.expectRevert();
-        ethscriptions.ownerOf(tokenId);
+
+        // Verify alice still owns the token
+        assertEq(ethscriptions.ownerOf(tokenId), alice);
     }
     
     function testBurnCallsTokenManagerHandleTransfer() public {
@@ -181,15 +175,16 @@ contract EthscriptionsBurnTest is TestSetup {
         vm.prank(alice);
         ethscriptions.createEthscription(params);
         
-        // Burn the ethscription
+        uint256 simpleTokenId = ethscriptions.getTokenId(simpleTxHash);
+
+        // Transfer the ethscription to address(0) (null ownership)
         vm.prank(alice);
-        ethscriptions.transferFrom(alice, address(0), uint256(simpleTxHash));
-        
-        // Verify it's burned
-        vm.expectRevert();
-        ethscriptions.ownerOf(uint256(simpleTxHash));
-        
-        // The burn should have called TokenManager.handleTokenTransfer with to=address(0)
-        // This ensures TokenManager is notified of burns
+        ethscriptions.transferFrom(alice, address(0), simpleTokenId);
+
+        // Verify it's owned by address(0)
+        assertEq(ethscriptions.ownerOf(simpleTokenId), address(0));
+
+        // The transfer should have called TokenManager.handleTokenTransfer with to=address(0)
+        // This ensures TokenManager is notified of transfers to null address
     }
 }

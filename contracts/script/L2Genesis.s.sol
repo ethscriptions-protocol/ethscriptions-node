@@ -35,7 +35,7 @@ contract GenesisEthscriptions is Ethscriptions {
             creator: creator,
             initialOwner: params.initialOwner,
             previousOwner: creator,
-            ethscriptionNumber: totalEthscriptions,
+            ethscriptionNumber: totalSupply,
             mimetype: params.mimetype,
             mediaType: params.mediaType,
             mimeSubtype: params.mimeSubtype,
@@ -47,13 +47,18 @@ contract GenesisEthscriptions is Ethscriptions {
             l1BlockHash: l1BlockHash
         });
 
-        tokenId = uint256(params.transactionHash);
-        totalEthscriptions++;
+        // Use ethscription number as token ID
+        tokenId = totalSupply;
+
+        // Store the mapping from token ID to transaction hash
+        tokenIdToTransactionHash[tokenId] = params.transactionHash;
+
+        totalSupply++;
 
         // If initial owner is zero (burned), mint to creator then burn
         if (params.initialOwner == address(0)) {
             _mint(creator, tokenId);
-            _burn(tokenId);
+            _transfer(creator, address(0), tokenId);
         } else {
             _mint(params.initialOwner, tokenId);
         }
@@ -63,10 +68,10 @@ contract GenesisEthscriptions is Ethscriptions {
             creator,
             params.initialOwner,
             contentSha,
-            totalEthscriptions - 1,
+            tokenId,
             _contentBySha[contentSha].length
         );
-        
+
         // Skip token handling for genesis
     }
 }

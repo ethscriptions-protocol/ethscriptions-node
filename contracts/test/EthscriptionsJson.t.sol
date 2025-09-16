@@ -245,9 +245,16 @@ contract EthscriptionsJsonTest is TestSetup {
         uint256 expectedLastChunkSize = totalLength - (24575 * 2);
         assertEq(chunk2.length, expectedLastChunkSize, "Last chunk should be remainder");
         
-        // Verify content matches when reassembled
-        string memory reconstructed = eth.tokenURI(uint256(txHash));
-        assertEq(reconstructed, string(contentUri), "Reconstructed should match original");
+        // Verify content matches when reassembled from chunks
+        bytes memory reconstructed;
+        for (uint256 i = 0; i < pointerCount; i++) {
+            reconstructed = abi.encodePacked(reconstructed, eth.readChunk(txHash, i));
+        }
+        assertEq(reconstructed, contentUri, "Reconstructed chunks should match original");
+
+        // Also verify tokenURI returns valid JSON
+        string memory tokenUri = eth.tokenURI(eth.getTokenId(txHash));
+        assertTrue(startsWith(tokenUri, "data:application/json;base64,"), "Should return JSON metadata");
     }
     
     function test_ExactChunkBoundary() public {
@@ -499,8 +506,8 @@ contract EthscriptionsJsonTest is TestSetup {
         uint256 esip6Gas = gasBeforeEsip6 - gasleft();
         
         // Verify both ethscriptions return JSON with same content
-        string memory uri1 = eth.tokenURI(uint256(txHash1));
-        string memory uri3 = eth.tokenURI(uint256(txHash3));
+        string memory uri1 = eth.tokenURI(eth.getTokenId(txHash1));
+        string memory uri3 = eth.tokenURI(eth.getTokenId(txHash3));
 
         // Both should be JSON
         assertTrue(startsWith(uri1, "data:application/json;base64,"), "Should return JSON");

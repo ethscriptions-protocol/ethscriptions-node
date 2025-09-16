@@ -40,8 +40,9 @@ contract EthscriptionsProverTest is TestSetup {
     function testProveEthscriptionDataOnCreation() public {
         // The ethscription creation in setUp should have triggered a proof
         // Let's transfer it to verify the proof includes previous owner
+        uint256 tokenId = ethscriptions.getTokenId(TEST_TX_HASH);
         vm.prank(alice);
-        ethscriptions.transferFrom(alice, bob, uint256(TEST_TX_HASH));
+        ethscriptions.transferFrom(alice, bob, tokenId);
         
         // Now prove the data which should include bob as current owner and alice as previous
         vm.recordLogs();

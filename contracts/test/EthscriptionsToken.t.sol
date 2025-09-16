@@ -55,7 +55,7 @@ contract EthscriptionsTokenTest is TestSetup {
         assertTrue(tokenInfo.tokenContract != address(0));
         
         // Verify Alice owns the deploy ethscription NFT
-        assertEq(ethscriptions.ownerOf(uint256(DEPLOY_TX_HASH)), alice);
+        assertEq(ethscriptions.ownerOf(ethscriptions.getTokenId(DEPLOY_TX_HASH)), alice);
     }
     
     function testTokenMint() public {
@@ -89,7 +89,7 @@ contract EthscriptionsTokenTest is TestSetup {
         ethscriptions.createEthscription(mintParams);
         
         // Verify Bob owns the mint ethscription NFT
-        assertEq(ethscriptions.ownerOf(uint256(MINT_TX_HASH_1)), bob);
+        assertEq(ethscriptions.ownerOf(ethscriptions.getTokenId(MINT_TX_HASH_1)), bob);
         
         // Verify Bob has the tokens (1000 * 10^18 with 18 decimals)
         address tokenAddress = tokenManager.getTokenAddressByTick("erc-20", "TEST");
@@ -113,7 +113,7 @@ contract EthscriptionsTokenTest is TestSetup {
         ethscriptions.transferEthscription(charlie, MINT_TX_HASH_1);
         
         // Verify Charlie now owns the NFT
-        assertEq(ethscriptions.ownerOf(uint256(MINT_TX_HASH_1)), charlie);
+        assertEq(ethscriptions.ownerOf(ethscriptions.getTokenId(MINT_TX_HASH_1)), charlie);
         
         // Verify tokens moved from Bob to Charlie
         assertEq(token.balanceOf(bob), 0);

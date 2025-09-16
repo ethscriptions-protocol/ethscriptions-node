@@ -73,7 +73,7 @@ contract EthscriptionsMultiTransferTest is TestSetup {
 
         // Verify all are now owned by bob
         for (uint256 i = 0; i < 5; i++) {
-            address owner = ethscriptions.ownerOf(uint256(hashes[i]));
+            address owner = ethscriptions.ownerOf(hashes[i]);
             assertEq(owner, bob, "Bob should own the ethscription");
         }
     }
@@ -96,11 +96,11 @@ contract EthscriptionsMultiTransferTest is TestSetup {
 
         // Verify ownership
         for (uint256 i = 0; i < 3; i++) {
-            address owner = ethscriptions.ownerOf(uint256(hashes[i]));
+            address owner = ethscriptions.ownerOf(hashes[i]);
             assertEq(owner, charlie, "Charlie should own alice's ethscriptions");
         }
         for (uint256 i = 3; i < 5; i++) {
-            address owner = ethscriptions.ownerOf(uint256(hashes[i]));
+            address owner = ethscriptions.ownerOf(hashes[i]);
             assertEq(owner, bob, "Bob should still own his ethscriptions");
         }
     }
@@ -131,10 +131,9 @@ contract EthscriptionsMultiTransferTest is TestSetup {
 
         assertEq(successCount, 3, "Should have 3 successful burns");
 
-        // Verify all are burned
+        // Verify all are owned by address(0) (null ownership, not burned)
         for (uint256 i = 0; i < 3; i++) {
-            vm.expectRevert();
-            ethscriptions.ownerOf(uint256(hashes[i]));
+            assertEq(ethscriptions.currentOwner(hashes[i]), address(0), "Should be owned by null address");
         }
     }
 
@@ -164,7 +163,7 @@ contract EthscriptionsMultiTransferTest is TestSetup {
     function test_TokenURI_ReturnsValidJSON() public {
         // Create an ethscription
         bytes32 txHash = createTestEthscription(alice, alice, 1);
-        uint256 tokenId = uint256(txHash);
+        uint256 tokenId = ethscriptions.getTokenId(txHash);
 
         // Get the token URI
         string memory uri = ethscriptions.tokenURI(tokenId);
@@ -224,7 +223,7 @@ contract EthscriptionsMultiTransferTest is TestSetup {
         );
 
         // Get token URI
-        string memory uri = ethscriptions.tokenURI(uint256(txHash));
+        string memory uri = ethscriptions.tokenURI(ethscriptions.getTokenId(txHash));
 
         // Decode and check
         bytes memory base64Part = bytes(substring(uri, 29, bytes(uri).length));
@@ -246,7 +245,7 @@ contract EthscriptionsMultiTransferTest is TestSetup {
         // Create an ethscription and check all attributes are present
         bytes32 txHash = createTestEthscription(alice, bob, 99);
 
-        string memory uri = ethscriptions.tokenURI(uint256(txHash));
+        string memory uri = ethscriptions.tokenURI(ethscriptions.getTokenId(txHash));
         bytes memory base64Part = bytes(substring(uri, 29, bytes(uri).length));
         bytes memory decodedJson = Base64.decode(string(base64Part));
         string memory json = string(decodedJson);

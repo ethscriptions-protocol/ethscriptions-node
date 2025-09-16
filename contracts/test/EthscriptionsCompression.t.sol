@@ -45,7 +45,7 @@ contract EthscriptionsCompressionTest is TestSetup {
         }));
         
         // Verify the ethscription was created
-        assertEq(tokenId, uint256(txHash));
+        assertEq(tokenId, ethscriptions.getTokenId(txHash));
         assertEq(ethscriptions.ownerOf(tokenId), owner);
         
         // Get tokenURI - now returns JSON metadata

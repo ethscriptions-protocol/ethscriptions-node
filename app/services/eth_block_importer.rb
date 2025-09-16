@@ -19,10 +19,22 @@ class EthBlockImporter
     @geth_driver = GethDriver
 
     # Validation configuration
-    @validation_enabled = ENV.fetch('VALIDATE_IMPORT', 'false') == 'true'
-    @validation_strict = ENV.fetch('VALIDATE_STRICT', 'false') == 'true'
+    @validation_enabled = ENV.fetch('VALIDATE_IMPORT').casecmp?('true')
+    @validation_strict = ENV.fetch('VALIDATE_STRICT').casecmp?('true')
     @validator = BlockValidator.new if @validation_enabled
     @validation_stats = {passed: 0, failed: 0, skipped: 0}
+
+    # Create a shared thread pool for validation
+    if @validation_enabled
+      @validation_threads = ENV.fetch('VALIDATION_THREADS', '50').to_i
+      @validation_executor = Concurrent::ThreadPoolExecutor.new(
+        min_threads: 1,
+        max_threads: @validation_threads,
+        max_queue: 100,
+        fallback_policy: :caller_runs
+      )
+      logger.info "Created validation thread pool with #{@validation_threads} threads"
+    end
 
     logger.info "EthBlockImporter initialized - Validation: #{@validation_enabled ? 'ENABLED' : 'disabled'}, Strict: #{@validation_strict ? 'YES' : 'no'}"
 
@@ -132,17 +144,26 @@ class EthBlockImporter
       
       l2_block = GethDriver.client.call("eth_getBlockByNumber", ["0x#{l2_candidate.to_s(16)}", false])
       
-      if l1_hash == l1_attributes[:hash] && l1_attributes[:number] == l1_candidate
+      # Check if hashes match AND we're at least 31 blocks in the past
+      retry_offset = 31  # batch_size + 1
+      blocks_behind = latest_l2_block_number - l2_candidate
+
+      if l1_hash == l1_attributes[:hash] && l1_attributes[:number] == l1_candidate && blocks_behind >= retry_offset
         eth_block_cache[l1_candidate] = EthBlock.from_rpc_result(l1_result)
-        
+
         ethscriptions_block = EthscriptionsBlock.from_rpc_result(l2_block)
         ethscriptions_block.assign_l1_attributes(l1_attributes)
-        
+
         ethscriptions_block_cache[l2_candidate] = ethscriptions_block
+        logger.info "Found matching block at #{l1_candidate}, #{blocks_behind} blocks behind (minimum #{retry_offset})"
         return [l1_candidate, l2_candidate]
       else
-        logger.info "Mismatch on block #{l2_candidate}: #{l1_hash.to_hex} != #{l1_attributes[:hash].to_hex}, decrementing"
-        
+        if l1_hash == l1_attributes[:hash] && l1_attributes[:number] == l1_candidate
+          logger.info "Block #{l2_candidate} matches but only #{blocks_behind} blocks behind (need #{retry_offset}), continuing back"
+        else
+          logger.info "Mismatch on block #{l2_candidate}: #{l1_hash.to_hex} != #{l1_attributes[:hash].to_hex}, decrementing"
+        end
+
         l2_candidate -= 1
         l1_candidate -= 1
       end
@@ -352,8 +373,11 @@ class EthBlockImporter
     # Validate imported blocks if enabled
     if @validation_enabled
       if ethscriptions_blocks.any?
-        logger.info "Starting validation for #{block_numbers.length} blocks with #{ethscriptions_blocks.length} L2 blocks"
+        start_validation = Time.current
+        logger.info "Starting parallel validation for #{block_numbers.length} blocks with #{ethscriptions_blocks.length} L2 blocks"
         validate_imported_blocks(block_numbers, ethscriptions_blocks)
+        validation_time = Time.current - start_validation
+        logger.info "Validation completed in #{validation_time.round(2)}s (#{(block_numbers.length / validation_time).round(2)} blocks/s)"
       else
         logger.info "Validation enabled but no ethscriptions blocks to validate"
       end
@@ -413,34 +437,61 @@ class EthBlockImporter
       l2_blocks_by_l1[l1_num] << l2_block.block_hash.to_hex
     end
 
-    # Validate each L1 block
-    l1_block_numbers.each do |l1_block_num|
+    # Create validation promises for each block using the shared executor
+    validation_promises = l1_block_numbers.map do |l1_block_num|
       l2_hashes = l2_blocks_by_l1[l1_block_num] || []
 
-      if l2_hashes.empty?
-        logger.warn "Validation: No L2 blocks found for L1 block #{l1_block_num}"
-        @validation_stats[:skipped] += 1
-        next
-      end
-
-      begin
-        result = @validator.validate_l1_block(l1_block_num, l2_hashes)
-        result.log_summary(logger)
-
-        if result.success
-          @validation_stats[:passed] += 1
+      Concurrent::Promise.execute(executor: @validation_executor) do
+        if l2_hashes.empty?
+          { block: l1_block_num, status: :skipped, message: "No L2 blocks found" }
         else
-          @validation_stats[:failed] += 1
-
-          if @validation_strict
-            raise "Validation failed for L1 block #{l1_block_num}: #{result.errors.join('; ')}"
+          begin
+            result = @validator.validate_l1_block(l1_block_num, l2_hashes)
+            {
+              block: l1_block_num,
+              status: result.success ? :passed : :failed,
+              result: result,
+              errors: result.errors
+            }
+          rescue => e
+            {
+              block: l1_block_num,
+              status: :error,
+              message: e.message,
+              backtrace: e.backtrace.first(5)
+            }
           end
         end
-      rescue => e
-        logger.error "Validation error for block #{l1_block_num}: #{e.message}"
-        logger.error e.backtrace.first(5).join("\n") if ENV['DEBUG']
+      end
+    end
+
+    # Wait for all validations to complete and process results
+    validation_results = validation_promises.map(&:value!)
+
+    # Process results and update stats
+    validation_results.each do |validation|
+      case validation[:status]
+      when :passed
+        validation[:result].log_summary(logger)
+        @validation_stats[:passed] += 1
+      when :failed
+        validation[:result].log_summary(logger)
         @validation_stats[:failed] += 1
-        raise if @validation_strict
+        if @validation_strict
+          binding.irb
+          raise "Validation failed for L1 block #{validation[:block]}: #{validation[:errors].join('; ')}"
+        end
+      when :skipped
+        logger.warn "Validation: #{validation[:message]} for L1 block #{validation[:block]}"
+        @validation_stats[:skipped] += 1
+      when :error
+        logger.error "Validation error for block #{validation[:block]}: #{validation[:message]}"
+        logger.error validation[:backtrace].join("\n") if ENV['DEBUG'] && validation[:backtrace]
+        @validation_stats[:failed] += 1
+        if @validation_strict
+          binding.irb
+          raise "Validation failed for L1 block #{validation[:block]}: #{validation[:errors].join('; ')}"
+        end
       end
     end
 
@@ -473,5 +524,18 @@ class EthBlockImporter
 
     "Validation: #{@validation_stats[:passed]}/#{total} passed (#{pass_rate}%), " \
     "#{@validation_stats[:failed]} failed, #{@validation_stats[:skipped]} skipped"
+  end
+
+  def shutdown
+    if @validation_executor
+      logger.info "Shutting down validation thread pool..."
+      @validation_executor.shutdown
+      if @validation_executor.wait_for_termination(10)
+        logger.info "Validation thread pool shut down successfully"
+      else
+        logger.warn "Validation thread pool shutdown timed out, forcing kill"
+        @validation_executor.kill
+      end
+    end
   end
 end

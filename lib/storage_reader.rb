@@ -60,7 +60,7 @@ class StorageReader
   ]
 
   class << self
-    def get_ethscription(tx_hash)
+    def get_ethscription(tx_hash, block_tag: 'latest')
       # Ensure tx_hash is properly formatted as bytes32
       tx_hash_bytes32 = format_bytes32(tx_hash)
 
@@ -71,7 +71,7 @@ class StorageReader
       calldata = function_sig + [tx_hash_bytes32].pack('H*')
 
       # Make the eth_call
-      result = eth_call('0x' + calldata.unpack1('H*'))
+      result = eth_call('0x' + calldata.unpack1('H*'), block_tag)
       return nil if result.nil? || result == '0x' || result == '0x0'
 
       # Decode using Eth::Abi
@@ -103,9 +103,9 @@ class StorageReader
       nil
     end
 
-    def get_owner(token_id)
+    def get_owner(token_id, block_tag: 'latest')
       # Build function signature
-      function_sig = Eth::Util.keccak256('ownerOf(uint256)')[0...4]
+      function_sig = Eth::Util.keccak256('ownerOf(bytes32)')[0...4]
 
       # Token ID is the transaction hash as uint256
       token_id_bytes32 = format_bytes32(token_id)
@@ -114,7 +114,7 @@ class StorageReader
       calldata = function_sig + [token_id_bytes32].pack('H*')
 
       # Make the eth_call
-      result = eth_call('0x' + calldata.unpack1('H*'))
+      result = eth_call('0x' + calldata.unpack1('H*'), block_tag)
       return nil if result.nil? || result == '0x'
 
       # Decode the result - ownerOf returns a single address
@@ -125,7 +125,7 @@ class StorageReader
       nil
     end
 
-    def get_total_supply
+    def get_total_supply(block_tag: 'latest')
       # Build function signature
       function_sig = Eth::Util.keccak256('totalSupply()')[0...4]
 
@@ -133,7 +133,7 @@ class StorageReader
       calldata = '0x' + function_sig.unpack1('H*')
 
       # Make the eth_call
-      result = eth_call(calldata)
+      result = eth_call(calldata, block_tag)
       return 0 if result.nil? || result == '0x'
 
       # Decode the result

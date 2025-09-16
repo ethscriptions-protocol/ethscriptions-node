@@ -19,76 +19,93 @@ class EthscriptionDetector
 
   def detect_all_operations
     return unless @eth_tx.status == 1
-    
+
     # 1. Check for creation (from input or events)
     detect_creation
 
-    # 2. Check for transfers via events (ESIP-1/2)
-    detect_event_transfers if SysConfig.esip1_enabled?(@eth_tx.block_number)
+    # 2. Process transfers via input (single transfers from genesis, multi from ESIP-5)
+    process_input_transfers
 
-    # 3. Check for transfers via input (ESIP-5)
-    detect_input_transfers if SysConfig.esip5_enabled?(@eth_tx.block_number)
+    # 3. Process transfers via events (ESIP-1/2)
+    process_event_transfers
   end
 
   def detect_creation
-    if @eth_tx.to_address.present? && DataUri.valid?(decoded_input)
+    content = decoded_input
+    if @eth_tx.to_address.present? && content && DataUri.valid?(content)
       add_create_operation(
         transaction_hash: @eth_tx.transaction_hash,
         creator: @eth_tx.from_address,  # L1 sender is creator
         initial_owner: @eth_tx.to_address,
-        content_uri: decoded_input,
+        content_uri: content,
         source: :input
       )
     end
 
     # Also check for create events (ESIP-3)
     if SysConfig.esip3_enabled?(@eth_tx.block_number) && @eth_tx.logs
-      detect_create_events
+      process_create_events
     end
   end
 
-  def detect_create_events
-    @eth_tx.logs.each do |log|
-      next if log['removed']
+  def process_create_events
+    ordered_events.each do |log|
       next unless log['topics']&.first == CREATE_SIG
 
       begin
-        handle_create_event(log)
+        # Exact topic length match like original
+        next unless log['topics'].length == 2
+
+        # Decode exactly like the original
+        initial_owner = Eth::Abi.decode(['address'], log['topics'].second).first
+        content_uri_data = Eth::Abi.decode(['string'], log['data']).first
+        content_uri = HexDataProcessor.clean_utf8(content_uri_data)
+
+        add_create_operation(
+          transaction_hash: @eth_tx.transaction_hash,
+          creator: log['address'],  # Contract address is creator for events (matches original)
+          initial_owner: initial_owner,
+          content_uri: content_uri,
+          event_log_index: log['logIndex'].to_i(16),
+          source: :event
+        )
       rescue Eth::Abi::DecodingError => e
         Rails.logger.error "Failed to decode create event: #{e.message}"
+        next
       end
     end
   end
 
-  def detect_event_transfers
-    return unless @eth_tx.logs
-
-    @eth_tx.logs.each_with_index do |log, index|
-      next if log['removed']
-
+  def process_event_transfers
+    ordered_events.each do |log|
       begin
         case log['topics']&.first
         when ESIP1_SIG
-          handle_esip1_event(log, index) if SysConfig.esip1_enabled?(@eth_tx.block_number)
+          handle_esip1_event(log) if SysConfig.esip1_enabled?(@eth_tx.block_number)
         when ESIP2_SIG
-          handle_esip2_event(log, index) if SysConfig.esip2_enabled?(@eth_tx.block_number)
+          handle_esip2_event(log) if SysConfig.esip2_enabled?(@eth_tx.block_number)
         end
       rescue Eth::Abi::DecodingError => e
         Rails.logger.error "Failed to decode transfer event: #{e.message}"
+        next
       end
     end
   end
 
-  def detect_input_transfers
-    return unless @eth_tx.to_address.present? && @eth_tx.status == 1
+  def process_input_transfers
+    return unless @eth_tx.to_address.present?
 
     # ByteString to hex conversion
     input_hex = @eth_tx.input.to_hex.delete_prefix('0x')
 
-    # Check for valid transfer input (64 hex chars = 32 bytes per hash)
+    # Check for valid transfer input
+    # Single transfers (64 chars) supported from genesis
+    # Multi transfers (n*64 chars) supported from ESIP-5
     valid_length = if SysConfig.esip5_enabled?(@eth_tx.block_number)
+      # ESIP-5: Allow multiple transfers
       input_hex.length > 0 && input_hex.length % 64 == 0
     else
+      # Pre-ESIP-5: Only single transfers (exactly 64 hex chars)
       input_hex.length == 64
     end
 
@@ -106,53 +123,53 @@ class EthscriptionDetector
     end
   end
 
-  def handle_esip1_event(log, index)
-    return unless log['topics'].size == 3
+  def handle_esip1_event(log)
+    # Exact topic length match like original
+    return unless log['topics'].length == 3
 
-    to_address = decode_address(log['topics'][1])
-    ethscription_id = log['topics'][2]
+    # Decode exactly like the original
+    event_to = Eth::Abi.decode(['address'], log['topics'].second).first
+    tx_hash = Eth::Util.bin_to_prefixed_hex(
+      Eth::Abi.decode(['bytes32'], log['topics'].third).first
+    )
 
     @operations << {
       type: :transfer,
-      ethscription_id: normalize_hash(ethscription_id),
+      ethscription_id: normalize_hash(tx_hash),
       from: normalize_address(log['address']),  # Contract address (matches original)
-      to: normalize_address(to_address),
+      to: normalize_address(event_to),
       event_log_index: log['logIndex'].to_i(16)
     }
   end
 
-  def handle_esip2_event(log, index)
-    return unless log['topics'].size == 4
+  def handle_esip2_event(log)
+    # Exact topic length match like original
+    return unless log['topics'].length == 4
 
-    previous_owner = decode_address(log['topics'][1])
-    to_address = decode_address(log['topics'][2])
-    ethscription_id = log['topics'][3]
+    # Decode exactly like the original
+    event_previous_owner = Eth::Abi.decode(['address'], log['topics'].second).first
+    event_to = Eth::Abi.decode(['address'], log['topics'].third).first
+    tx_hash = Eth::Util.bin_to_prefixed_hex(
+      Eth::Abi.decode(['bytes32'], log['topics'].fourth).first
+    )
 
     @operations << {
       type: :transfer_with_previous_owner,
-      ethscription_id: normalize_hash(ethscription_id),
+      ethscription_id: normalize_hash(tx_hash),
       from: normalize_address(log['address']),  # Contract address (matches original)
-      to: normalize_address(to_address),
-      previous_owner: normalize_address(previous_owner),
+      to: normalize_address(event_to),
+      previous_owner: normalize_address(event_previous_owner),
       event_log_index: log['logIndex'].to_i(16)
     }
   end
 
-  def handle_create_event(log)
-    return unless log['topics'].size == 2
 
-    initial_owner = decode_address(log['topics'][1])
-    content_uri_data = Eth::Abi.decode(['string'], log['data']).first
-    content_uri = HexDataProcessor.clean_utf8(content_uri_data)
+  def ordered_events
+    # Handle nil or missing logs gracefully
+    return [] if @eth_tx.logs.nil?
 
-    add_create_operation(
-      transaction_hash: @eth_tx.transaction_hash,
-      creator: log['address'],  # Contract address is creator for events (matches original)
-      initial_owner: initial_owner,
-      content_uri: content_uri,
-      event_log_index: log['logIndex'].to_i(16),
-      source: :event
-    )
+    @eth_tx.logs.reject { |log| log['removed'] }
+                .sort_by { |log| log['logIndex'].to_i(16) }
   end
 
   def add_create_operation(params)
@@ -161,8 +178,6 @@ class EthscriptionDetector
     return if @seen_creates.include?(tx_hash)
     @seen_creates.add(tx_hash)
 
-    # Validate and parse data URI
-    return unless DataUri.valid?(params[:content_uri])
     data_uri = DataUri.new(params[:content_uri])
 
     @operations << {
@@ -185,12 +200,7 @@ class EthscriptionDetector
       support_gzip: SysConfig.esip7_enabled?(@eth_tx.block_number)
     )
   end
-
-  def decode_address(topic)
-    # Topics are 32 bytes, addresses are last 20 bytes
-    "0x#{topic[-40..]}"
-  end
-
+  
   def normalize_address(addr)
     return nil unless addr
     # Handle both Address20 objects and strings
