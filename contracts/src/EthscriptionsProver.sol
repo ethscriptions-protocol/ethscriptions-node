@@ -109,7 +109,7 @@ contract EthscriptionsProver {
         // Create proof struct with previous owner
         EthscriptionDataProof memory proof = EthscriptionDataProof({
             ethscriptionTxHash: ethscriptionTxHash,
-            contentSha: etsc.contentSha,
+            contentSha: etsc.content.contentSha,
             creator: etsc.creator,
             currentOwner: currentOwner,
             previousOwner: etsc.previousOwner,

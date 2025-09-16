@@ -14,27 +14,16 @@ contract EthscriptionsProverTest is TestSetup {
     
     function setUp() public override {
         super.setUp();
-        
-        // Create a test ethscription
-        vm.prank(alice);
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: TEST_TX_HASH,
-            initialOwner: alice,
-            contentUri: bytes("data:,test content"),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
+
+        // Create a test ethscription with alice as creator
+        vm.startPrank(alice);
+        ethscriptions.createEthscription(createTestParams(
+            TEST_TX_HASH,
+            alice,
+            "data:,test content",
+            false
+        ));
+        vm.stopPrank();
     }
     
     function testProveEthscriptionDataOnCreation() public {
@@ -71,7 +60,7 @@ contract EthscriptionsProverTest is TestSetup {
         );
         
         assertEq(decodedProof.ethscriptionTxHash, TEST_TX_HASH);
-        assertEq(decodedProof.creator, alice);
+        assertEq(decodedProof.creator, alice); // Creator should be alice due to vm.prank
         assertEq(decodedProof.currentOwner, bob);
         assertEq(decodedProof.previousOwner, alice);
         // assertEq(decodedProof.ethscriptionNumber, 0);
@@ -83,15 +72,17 @@ contract EthscriptionsProverTest is TestSetup {
     function testProveTokenBalance() public {
         // First deploy a token
         vm.prank(alice);
+        bytes memory tokenDeployUri = bytes('data:,{"p":"erc-20","op":"deploy","tick":"TEST","max":"1000000","lim":"1000"}');
         ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
             transactionHash: TOKEN_DEPLOY_HASH,
+            contentUriHash: sha256(tokenDeployUri),
             initialOwner: alice,
-            contentUri: bytes('data:,{"p":"erc-20","op":"deploy","tick":"TEST","max":"1000000","lim":"1000"}'),
+            content: bytes('{"p":"erc-20","op":"deploy","tick":"TEST","max":"1000000","lim":"1000"}'),
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
+            wasBase64: false,
             esip6: false,
-            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "deploy",
                 protocol: "erc-20",
@@ -104,15 +95,17 @@ contract EthscriptionsProverTest is TestSetup {
         
         // Mint some tokens
         vm.prank(bob);
+        bytes memory tokenMintUri = bytes('data:,{"p":"erc-20","op":"mint","tick":"TEST","amt":"1000"}');
         ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
             transactionHash: TOKEN_MINT_HASH,
+            contentUriHash: sha256(tokenMintUri),
             initialOwner: bob,
-            contentUri: bytes('data:,{"p":"erc-20","op":"mint","tick":"TEST","amt":"1000"}'),
+            content: bytes('{"p":"erc-20","op":"mint","tick":"TEST","amt":"1000"}'),
             mimetype: "text/plain",
             mediaType: "text",
             mimeSubtype: "plain",
+            wasBase64: false,
             esip6: false,
-            isCompressed: false,
             tokenParams: Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
@@ -160,24 +153,12 @@ contract EthscriptionsProverTest is TestSetup {
         
         vm.recordLogs();
         vm.prank(bob);
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: newTxHash,
-            initialOwner: bob,
-            contentUri: bytes("data:,automatic proof test"),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
+        ethscriptions.createEthscription(createTestParams(
+            newTxHash,
+            bob,
+            "data:,automatic proof test",
+            false
+        ));
         
         Vm.Log[] memory logs = vm.getRecordedLogs();
         

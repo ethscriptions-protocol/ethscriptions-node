@@ -8,41 +8,26 @@ import "forge-std/console.sol";
 contract EthscriptionsCompressionTest is TestSetup {
     using LibZip for bytes;
     
-    function testCompressedEthscriptionCreation() public {
+    function testEthscriptionCreation() public {
         // Load the actual example ethscription content
         string memory json = vm.readFile("test/example_ethscription.json");
-        bytes memory originalContent = bytes(vm.parseJsonString(json, ".result.content_uri"));
-        
-        console.log("Original content size:", originalContent.length);
-        
-        // Compress off-chain (simulating what the indexer would do)
-        bytes memory compressedContent = LibZip.flzCompress(originalContent);
-        console.log("Compressed content size:", compressedContent.length);
-        console.log("Compression ratio:", (compressedContent.length * 100) / originalContent.length, "%");
-        
-        // Create ethscription with compressed content
+        string memory contentUri = vm.parseJsonString(json, ".result.content_uri");
+
+        console.log("Content URI size:", bytes(contentUri).length);
+
+        // Create ethscription
         bytes32 txHash = bytes32(uint256(0xC0113E55));
         address owner = address(0x1337);
-        
+
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            txHash,
+            owner,
+            contentUri,
+            false
+        );
+
         vm.prank(owner);
-        uint256 tokenId = ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: owner,
-            contentUri: compressedContent,
-            mimetype: "image/png",
-            mediaType: "image",
-            mimeSubtype: "png",
-            esip6: false,
-            isCompressed: true,  // Flag indicating content is compressed
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
+        uint256 tokenId = ethscriptions.createEthscription(params);
         
         // Verify the ethscription was created
         assertEq(tokenId, ethscriptions.getTokenId(txHash));
@@ -66,29 +51,19 @@ contract EthscriptionsCompressionTest is TestSetup {
     
     function testUncompressedEthscriptionCreation() public {
         // Test regular uncompressed creation still works
-        bytes memory content = bytes("data:,Hello World!");
+        string memory contentUri = "data:,Hello World!";
         bytes32 txHash = bytes32(uint256(0x00C0113E));
         address owner = address(0xBEEF);
-        
+
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            txHash,
+            owner,
+            contentUri,
+            false
+        );
+
         vm.prank(owner);
-        uint256 tokenId = ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: owner,
-            contentUri: content,
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,  // Not compressed
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
+        uint256 tokenId = ethscriptions.createEthscription(params);
         
         // Verify - tokenURI now returns JSON metadata
         string memory tokenURI = ethscriptions.tokenURI(tokenId);

@@ -16,23 +16,51 @@ contract EthscriptionsTokenTest is TestSetup {
     function setUp() public override {
         super.setUp();
     }
+
+    // Helper to create token params
+    function createTokenParams(
+        bytes32 transactionHash,
+        address initialOwner,
+        string memory contentUri,
+        Ethscriptions.TokenParams memory tokenParams
+    ) internal pure returns (Ethscriptions.CreateEthscriptionParams memory) {
+        bytes memory contentUriBytes = bytes(contentUri);
+        bytes32 contentUriHash = sha256(contentUriBytes);  // Use SHA-256 to match production
+
+        // Extract content after "data:,"
+        bytes memory content;
+        if (contentUriBytes.length > 6) {
+            content = new bytes(contentUriBytes.length - 6);
+            for (uint256 i = 0; i < content.length; i++) {
+                content[i] = contentUriBytes[i + 6];
+            }
+        }
+
+        return Ethscriptions.CreateEthscriptionParams({
+            transactionHash: transactionHash,
+            contentUriHash: contentUriHash,
+            initialOwner: initialOwner,
+            content: content,
+            mimetype: "text/plain",
+            mediaType: "text",
+            mimeSubtype: "plain",
+            wasBase64: false,
+            esip6: false,
+            tokenParams: tokenParams
+        });
+    }
     
     function testTokenDeploy() public {
         // Deploy a token as Alice
         vm.prank(alice);
         
         string memory deployContent = 'data:,{"p":"erc-20","op":"deploy","tick":"TEST","max":"1000000","lim":"1000"}';
-        
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: DEPLOY_TX_HASH,
-            initialOwner: alice,
-            contentUri: bytes(deployContent),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+
+        Ethscriptions.CreateEthscriptionParams memory params = createTokenParams(
+            DEPLOY_TX_HASH,
+            alice,
+            deployContent,
+            Ethscriptions.TokenParams({
                 op: "deploy",
                 protocol: "erc-20",
                 tick: "TEST",
@@ -40,8 +68,8 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 1000,
                 amt: 0
             })
-        });
-        
+        );
+
         ethscriptions.createEthscription(params);
         
         // Verify token was deployed
@@ -66,17 +94,12 @@ contract EthscriptionsTokenTest is TestSetup {
         vm.prank(bob);
         
         string memory mintContent = 'data:,{"p":"erc-20","op":"mint","tick":"TEST","id":"1","amt":"1000"}';
-        
-        Ethscriptions.CreateEthscriptionParams memory mintParams = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: MINT_TX_HASH_1,
-            initialOwner: bob,
-            contentUri: bytes(mintContent),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+
+        Ethscriptions.CreateEthscriptionParams memory mintParams = createTokenParams(
+            MINT_TX_HASH_1,
+            bob,
+            mintContent,
+            Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
                 tick: "TEST",
@@ -84,8 +107,8 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 0,
                 amt: 1000
             })
-        });
-        
+        );
+
         ethscriptions.createEthscription(mintParams);
         
         // Verify Bob owns the mint ethscription NFT
@@ -130,16 +153,11 @@ contract EthscriptionsTokenTest is TestSetup {
         // Bob mints tokens
         vm.prank(bob);
         string memory mintContent1 = 'data:,{"p":"erc-20","op":"mint","tick":"TEST","id":"1","amt":"1000"}';
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: MINT_TX_HASH_1,
-            initialOwner: bob,
-            contentUri: bytes(mintContent1),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+        ethscriptions.createEthscription(createTokenParams(
+            MINT_TX_HASH_1,
+            bob,
+            mintContent1,
+            Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
                 tick: "TEST",
@@ -147,21 +165,16 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 0,
                 amt: 1000
             })
-        }));
+        ));
         
         // Charlie mints tokens
         vm.prank(charlie);
         string memory mintContent2 = 'data:,{"p":"erc-20","op":"mint","tick":"TEST","id":"2","amt":"1000"}';
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: MINT_TX_HASH_2,
-            initialOwner: charlie,
-            contentUri: bytes(mintContent2),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+        ethscriptions.createEthscription(createTokenParams(
+            MINT_TX_HASH_2,
+            charlie,
+            mintContent2,
+            Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
                 tick: "TEST",
@@ -169,7 +182,7 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 0,
                 amt: 1000
             })
-        }));
+        ));
         
         // Verify balances
         assertEq(token.balanceOf(bob), 1000 ether);
@@ -187,16 +200,11 @@ contract EthscriptionsTokenTest is TestSetup {
         bytes32 smallDeployHash = bytes32(uint256(0xDEAD));
         string memory deployContent = 'data:,{"p":"erc-20","op":"deploy","tick":"SMALL","max":"2000","lim":"1000"}';
         
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: smallDeployHash,
-            initialOwner: alice,
-            contentUri: bytes(deployContent),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+        ethscriptions.createEthscription(createTokenParams(
+            smallDeployHash,
+            alice,
+            deployContent,
+            Ethscriptions.TokenParams({
                 op: "deploy",
                 protocol: "erc-20",
                 tick: "SMALL",
@@ -204,20 +212,15 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 1000,
                 amt: 0
             })
-        }));
+        ));
         
         // Mint up to max supply
         vm.prank(bob);
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: bytes32(uint256(0xBEEF1)),
-            initialOwner: bob,
-            contentUri: bytes('data:,{"p":"erc-20","op":"mint","tick":"SMALL","id":"1","amt":"1000"}'),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+        ethscriptions.createEthscription(createTokenParams(
+            bytes32(uint256(0xBEEF1)),
+            bob,
+            'data:,{"p":"erc-20","op":"mint","tick":"SMALL","id":"1","amt":"1000"}',
+            Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
                 tick: "SMALL",
@@ -225,19 +228,14 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 0,
                 amt: 1000
             })
-        }));
+        ));
         
         vm.prank(charlie);
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: bytes32(uint256(0xBEEF2)),
-            initialOwner: charlie,
-            contentUri: bytes('data:,{"p":"erc-20","op":"mint","tick":"SMALL","id":"2","amt":"1000"}'),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+        ethscriptions.createEthscription(createTokenParams(
+            bytes32(uint256(0xBEEF2)),
+            charlie,
+            'data:,{"p":"erc-20","op":"mint","tick":"SMALL","id":"2","amt":"1000"}',
+            Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
                 tick: "SMALL",
@@ -245,21 +243,14 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 0,
                 amt: 1000
             })
-        }));
+        ));
         
         // Try to mint beyond max supply - should revert
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ERC20CappedUpgradeable.ERC20ExceededCap.selector, 3000 ether, 2000 ether));
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: bytes32(uint256(0xBEEF3)),
-            initialOwner: alice,
-            contentUri: bytes('data:,{"p":"erc-20","op":"mint","tick":"SMALL","id":"3","amt":"1000"}'),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+        Ethscriptions.CreateEthscriptionParams memory exceedParams = createTokenParams(
+            bytes32(uint256(0xBEEF3)),
+            alice,
+            'data:,{"p":"erc-20","op":"mint","tick":"SMALL","id":"3","amt":"1000"}',
+            Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
                 tick: "SMALL",
@@ -267,7 +258,11 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 0,
                 amt: 1000
             })
-        }));
+        );
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ERC20CappedUpgradeable.ERC20ExceededCap.selector, 3000 ether, 2000 ether));
+        ethscriptions.createEthscription(exceedParams);
     }
     
     function testCannotTransferERC20Directly() public {
@@ -300,21 +295,13 @@ contract EthscriptionsTokenTest is TestSetup {
         testTokenDeploy();
         
         // Try to mint with wrong amount - should revert
-        vm.prank(bob);
-        vm.expectRevert("amt mismatch");
-        
         string memory wrongAmountContent = 'data:,{"p":"erc-20","op":"mint","tick":"TEST","id":"1","amt":"500"}';
-        
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: bytes32(uint256(0xBAD)),
-            initialOwner: bob,
-            contentUri: bytes(wrongAmountContent),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+
+        Ethscriptions.CreateEthscriptionParams memory wrongParams = createTokenParams(
+            bytes32(uint256(0xBAD)),
+            bob,
+            wrongAmountContent,
+            Ethscriptions.TokenParams({
                 op: "mint",
                 protocol: "erc-20",
                 tick: "TEST",
@@ -322,30 +309,26 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 0,
                 amt: 500  // Wrong - should be 1000 to match lim
             })
-        }));
+        );
+
+        vm.prank(bob);
+        vm.expectRevert("amt mismatch");
+        ethscriptions.createEthscription(wrongParams);
     }
     
     function testCannotDeployTokenTwice() public {
         // First deploy should succeed
         testTokenDeploy();
-        
+
         // Try to deploy the same token again with different parameters - should revert
-        vm.prank(alice);
-        vm.expectRevert("Token already deployed");
-        
         // Different max supply in content to avoid duplicate content error
         string memory deployContent = 'data:,{"p":"erc-20","op":"deploy","tick":"TEST","max":"2000000","lim":"2000"}';
-        
-        ethscriptions.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: bytes32(uint256(0xABCD)), // Different tx hash
-            initialOwner: alice,
-            contentUri: bytes(deployContent),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
+
+        Ethscriptions.CreateEthscriptionParams memory duplicateParams = createTokenParams(
+            bytes32(uint256(0xABCD)), // Different tx hash
+            alice,
+            deployContent,
+            Ethscriptions.TokenParams({
                 op: "deploy",
                 protocol: "erc-20",
                 tick: "TEST",
@@ -353,6 +336,10 @@ contract EthscriptionsTokenTest is TestSetup {
                 lim: 2000,
                 amt: 0
             })
-        }));
+        );
+
+        vm.prank(alice);
+        vm.expectRevert("Token already deployed");
+        ethscriptions.createEthscription(duplicateParams);
     }
 }

@@ -21,24 +21,12 @@ contract EthscriptionsTransferForPreviousOwnerTest is TestSetup {
         
         vm.prank(creator);
         eth.createEthscription(
-            Ethscriptions.CreateEthscriptionParams({
-                transactionHash: txHash,
-                initialOwner: initialOwner,
-                contentUri: bytes("data:,test"),
-                mimetype: "text/plain",
-                mediaType: "text",
-                mimeSubtype: "plain",
-                esip6: false,
-                isCompressed: false,
-                tokenParams: Ethscriptions.TokenParams({
-                    op: "",
-                    protocol: "",
-                    tick: "",
-                    max: 0,
-                    lim: 0,
-                    amt: 0
-                })
-            })
+            createTestParams(
+                txHash,
+                initialOwner,
+                "data:,test",
+                false
+            )
         );
         
         // Transfer from initial owner to new owner
@@ -81,24 +69,12 @@ contract EthscriptionsTransferForPreviousOwnerTest is TestSetup {
         
         vm.prank(creator);
         eth.createEthscription(
-            Ethscriptions.CreateEthscriptionParams({
-                transactionHash: txHash,
-                initialOwner: owner1,
-                contentUri: bytes("data:,gas test"),
-                mimetype: "text/plain",
-                mediaType: "text",
-                mimeSubtype: "plain",
-                esip6: false,
-                isCompressed: false,
-                tokenParams: Ethscriptions.TokenParams({
-                    op: "",
-                    protocol: "",
-                    tick: "",
-                    max: 0,
-                    lim: 0,
-                    amt: 0
-                })
-            })
+            createTestParams(
+                txHash,
+                owner1,
+                "data:,gas test",
+                false
+            )
         );
         
         // First transfer (regular)

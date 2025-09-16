@@ -64,17 +64,24 @@ class EthscriptionTransactionBuilder
   def self.build_create_calldata(operation)
     # Get function selector as binary
     function_sig = Eth::Util.keccak256(
-      'createEthscription((bytes32,address,bytes,string,string,string,bool,bool,(string,string,string,uint256,uint256,uint256)))'
+      'createEthscription((bytes32,bytes32,address,bytes,string,string,string,bool,bool,(string,string,string,uint256,uint256,uint256)))'
     )[0...4].b
 
     # Parse mimetype
     mimetype = operation[:mimetype].to_s
-    
-    # TODO: Is this ultimately correct?
-    # See: 0xc8b009c31546acc7a9f7cbc22a8e968ea0562f7c9e7cf5b14f913d95e2cc6fc3
-    # Leaving for now to match old behavior
     media_type = mimetype&.split('/')&.first
     mime_subtype = mimetype&.split('/')&.last
+
+    # Hash the raw content URI for protocol uniqueness
+    content_uri_hash_hex = Digest::SHA256.hexdigest(operation[:content_uri].to_s)
+    content_uri_hash = [content_uri_hash_hex].pack('H*')  # Convert to binary
+
+    # Parse the data URI and extract content
+    data_uri = DataUri.new(operation[:content_uri].to_s)
+    # decoded_data only decodes base64, otherwise returns data as-is (preserving percent-encoding)
+    # TODO: Decode percent encoding?
+    raw_content = data_uri.decoded_data.b
+    was_base64 = data_uri.base64?
 
     # Convert hex strings to binary for ABI encoding
     tx_hash_bin = hex_to_bin(operation[:transaction_hash])
@@ -82,19 +89,20 @@ class EthscriptionTransactionBuilder
 
     # Encode parameters with proper binary values
     params = [
-      tx_hash_bin,                            # bytes32 (binary)
+      tx_hash_bin,                            # bytes32 transactionHash (binary)
+      content_uri_hash,                        # bytes32 contentUriHash (binary)
       owner_bin,                               # address (binary)
-      operation[:content_uri].to_s.b,              # bytes
-      mimetype.b,                                # string
+      raw_content,                             # bytes content (decoded raw bytes)
+      mimetype.b,                              # string
       media_type.to_s.b,                       # string
       mime_subtype.to_s.b,                     # string
-      operation[:esip6] || false,             # bool
-      operation[:esip7_compressed] || false,  # bool
+      was_base64,                              # bool wasBase64
+      operation[:esip6] || false,              # bool esip6
       ['', '', '', 0, 0, 0]                   # TokenParams tuple
     ]
 
     encoded = Eth::Abi.encode(
-      ['(bytes32,address,bytes,string,string,string,bool,bool,(string,string,string,uint256,uint256,uint256))'],
+      ['(bytes32,bytes32,address,bytes,string,string,string,bool,bool,(string,string,string,uint256,uint256,uint256))'],
       [params]
     )
     # binding.irb if operation[:transaction_hash] == '0x3ee220285361b903eef2e05a7d4d5379a03db81868d350bcb3710cc55821d278'

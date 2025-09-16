@@ -35,24 +35,12 @@ contract EthscriptionsMultiTransferTest is TestSetup {
 
         vm.prank(creator);
         ethscriptions.createEthscription(
-            Ethscriptions.CreateEthscriptionParams({
-                transactionHash: txHash,
-                initialOwner: initialOwner,
-                contentUri: bytes(content),
-                mimetype: "text/plain",
-                mediaType: "text",
-                mimeSubtype: "plain",
-                esip6: false,
-                isCompressed: false,
-                tokenParams: Ethscriptions.TokenParams({
-                    op: "",
-                    protocol: "",
-                    tick: "",
-                    max: 0,
-                    lim: 0,
-                    amt: 0
-                })
-            })
+            createTestParams(
+                txHash,
+                initialOwner,
+                content,
+                false
+            )
         );
 
         return txHash;
@@ -200,26 +188,15 @@ contract EthscriptionsMultiTransferTest is TestSetup {
         // Compress the content using LibZip
         bytes memory compressedContent = LibZip.flzCompress(originalContent);
 
+        // We no longer support compression, just use the original content
         vm.prank(alice);
         ethscriptions.createEthscription(
-            Ethscriptions.CreateEthscriptionParams({
-                transactionHash: txHash,
-                initialOwner: alice,
-                contentUri: compressedContent,
-                mimetype: "text/plain",
-                mediaType: "text",
-                mimeSubtype: "plain",
-                esip6: false,
-                isCompressed: true,
-                tokenParams: Ethscriptions.TokenParams({
-                    op: "",
-                    protocol: "",
-                    tick: "",
-                    max: 0,
-                    lim: 0,
-                    amt: 0
-                })
-            })
+            createTestParams(
+                txHash,
+                alice,
+                string(originalContent),
+                false
+            )
         );
 
         // Get token URI
@@ -230,14 +207,10 @@ contract EthscriptionsMultiTransferTest is TestSetup {
         bytes memory decodedJson = Base64.decode(string(base64Part));
         string memory json = string(decodedJson);
 
-        // Should contain the decompressed content in the image field
+        // Should contain the content in the image field
         assertTrue(
             contains(json, '"image":"data:text/plain,This is a test content that will be compressed"'),
-            "Should have decompressed content in image"
-        );
-        assertTrue(
-            contains(json, '"trait_type":"Compressed","value":"true"'),
-            "Should indicate content was compressed"
+            "Should have content in image"
         );
     }
 
@@ -260,7 +233,7 @@ contract EthscriptionsMultiTransferTest is TestSetup {
             "Media Type",
             "MIME Subtype",
             "ESIP-6",
-            "Compressed",
+            "Was Base64",
             "L1 Block Number",
             "L2 Block Number",
             "Created At"

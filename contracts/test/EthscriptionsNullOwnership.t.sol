@@ -14,27 +14,15 @@ contract EthscriptionsNullOwnershipTest is TestSetup {
         bytes32 txHash = keccak256("mint_to_null");
 
         // Create ethscription with initialOwner as address(0)
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: address(0),
-            contentUri: bytes("data:text/plain,Null owned"),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        });
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            txHash,
+            address(0),
+            "data:text/plain,Null owned",
+            false
+        );
 
         // Expect only one EthscriptionCreated event (no EthscriptionTransferred since from == address(0))
-        bytes32 contentSha = sha256(bytes("data:text/plain,Null owned"));
+        bytes32 contentSha = sha256(bytes("Null owned")); // Raw content, not data URI
         vm.expectEmit(true, true, true, true);
         emit Ethscriptions.EthscriptionCreated(
             txHash,
@@ -70,24 +58,12 @@ contract EthscriptionsNullOwnershipTest is TestSetup {
         bytes32 txHash = keccak256("transfer_to_null");
 
         // First create owned by alice
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: alice,
-            contentUri: bytes("data:text/plain,Will be null owned"),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        });
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            txHash,
+            alice,
+            "data:text/plain,Will be null owned",
+            false
+        );
 
         vm.prank(alice);
         uint256 tokenId = ethscriptions.createEthscription(params);
@@ -117,24 +93,12 @@ contract EthscriptionsNullOwnershipTest is TestSetup {
         bytes32 txHash = keccak256("null_owned");
 
         // Create ethscription owned by null
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: address(0),
-            contentUri: bytes("data:text/plain,Null owned"),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        });
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            txHash,
+            address(0),
+            "data:text/plain,Null owned",
+            false
+        );
 
         vm.prank(alice);
         uint256 tokenId = ethscriptions.createEthscription(params);

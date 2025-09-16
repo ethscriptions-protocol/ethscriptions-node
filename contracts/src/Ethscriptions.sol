@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import "./ERC721EthscriptionsUpgradeable.sol";
 import {SSTORE2} from "solady/utils/SSTORE2.sol";
-import {LibZip} from "solady/utils/LibZip.sol";
 import {Base64} from "solady/utils/Base64.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import "./TokenManager.sol";
@@ -23,22 +22,32 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     /// @dev L1Block predeploy for getting L1 block info
     L1Block constant L1_BLOCK = L1Block(Predeploys.L1_BLOCK_ATTRIBUTES);
     
+    struct ContentInfo {
+        bytes32 contentUriHash;  // SHA256 of raw content URI string (for protocol uniqueness)
+        bytes32 contentSha;      // SHA256 of decoded raw bytes (for storage reference)
+        string mimetype;         // Full MIME type (e.g., "text/plain")
+        string mediaType;        // e.g., "text", "image"
+        string mimeSubtype;      // e.g., "plain", "png"
+        bool wasBase64;          // Whether the original data URI was base64 encoded
+        bool esip6;
+    }
+
     struct Ethscription {
-        bytes32 contentSha;
+        ContentInfo content;
         address creator;
         address initialOwner;
         address previousOwner;
         uint256 ethscriptionNumber;
-        string mimetype;
-        string mediaType;
-        string mimeSubtype;
-        bool esip6;
-        bool isCompressed;  // True if content is FastLZ compressed
-        // New fields for block tracking
-        uint256 createdAt;      // Timestamp when created
-        uint64 l1BlockNumber;   // L1 block number when created
-        uint64 l2BlockNumber;   // L2 block number when created  
-        bytes32 l1BlockHash;    // L1 block hash when created
+        uint256 createdAt;       // Timestamp when created
+        uint64 l1BlockNumber;    // L1 block number when created
+        uint64 l2BlockNumber;    // L2 block number when created
+        bytes32 l1BlockHash;     // L1 block hash when created
+    }
+
+    struct ContentData {
+        bytes32 contentSha;      // SHA256 of raw bytes
+        address[] pointers;      // SSTORE2 pointers to content chunks
+        uint256 size;           // Size of raw content
     }
     
     struct TokenParams {
@@ -52,13 +61,14 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     
     struct CreateEthscriptionParams {
         bytes32 transactionHash;
+        bytes32 contentUriHash;  // SHA256 of raw content URI (for protocol uniqueness)
         address initialOwner;
-        bytes contentUri;  // Changed from string to bytes for efficient slicing
+        bytes content;           // Raw decoded bytes (not Base64)
         string mimetype;
         string mediaType;
         string mimeSubtype;
+        bool wasBase64;          // Whether the original data URI was base64 encoded
         bool esip6;
-        bool isCompressed;  // True if contentUri is FastLZ compressed
         TokenParams tokenParams;  // Token operation data (optional)
     }
 
@@ -68,9 +78,11 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     // TODO: add full URI to ethscriptions  struct return value
     // TODO: show something for text
     
-    /// @dev Content SHA => SSTORE2 content pointers (single source of truth)
-    /// If array is non-empty, content exists. For ESIP6, we reuse existing pointers.
-    mapping(bytes32 => address[]) internal _contentBySha;
+    /// @dev Content SHA => ContentData (stores actual content and metadata)
+    mapping(bytes32 => ContentData) internal _contentBySha;
+
+    /// @dev Content URI hash => exists (for protocol uniqueness check)
+    mapping(bytes32 => bool) internal _contentUriExists;
     
     /// @dev Total number of ethscriptions created
     uint256 public totalSupply;
@@ -104,9 +116,9 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         uint256 ethscriptionNumber
     );
 
-    error DuplicateContent();
+    error DuplicateContentUri();
     error InvalidCreator();
-    error EmptyContentUri();
+    error EmptyContent();
     error EthscriptionAlreadyExists();
     error EthscriptionDoesNotExist();
 
@@ -144,26 +156,36 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         CreateEthscriptionParams calldata params
     ) external returns (uint256 tokenId) {
         address creator = msg.sender;
-        
+
         if (creator == address(0)) revert InvalidCreator();
-        // Allow address(0) as initial owner for burned ethscriptions
-        if (params.contentUri.length == 0) revert EmptyContentUri();
+        // Allow empty content - valid data URIs can have empty payloads (e.g., "data:,")
         if (_ethscriptionExists(params.transactionHash)) revert EthscriptionAlreadyExists();
 
-        // Store content and get content SHA
-        bytes32 contentSha = _storeContent(params.contentUri, params.isCompressed, params.esip6);
+        // Check protocol uniqueness using content URI hash
+        if (_contentUriExists[params.contentUriHash]) {
+            if (!params.esip6) revert DuplicateContentUri();
+        }
+
+        // Store content and get content SHA (of raw bytes)
+        bytes32 contentSha = _storeContent(params.content);
+
+        // Mark content URI as used
+        _contentUriExists[params.contentUriHash] = true;
 
         ethscriptions[params.transactionHash] = Ethscription({
-            contentSha: contentSha,
+            content: ContentInfo({
+                contentUriHash: params.contentUriHash,
+                contentSha: contentSha,
+                mimetype: params.mimetype,
+                mediaType: params.mediaType,
+                mimeSubtype: params.mimeSubtype,
+                wasBase64: params.wasBase64,
+                esip6: params.esip6
+            }),
             creator: creator,
             initialOwner: params.initialOwner,
             previousOwner: creator, // Initially same as creator
             ethscriptionNumber: totalSupply,
-            mimetype: params.mimetype,
-            mediaType: params.mediaType,
-            mimeSubtype: params.mimeSubtype,
-            esip6: params.esip6,
-            isCompressed: params.isCompressed,
             createdAt: block.timestamp,
             l1BlockNumber: L1_BLOCK.number(),
             l2BlockNumber: uint64(block.number),
@@ -192,7 +214,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             params.initialOwner,
             contentSha,
             tokenId,
-            _contentBySha[contentSha].length
+            _contentBySha[contentSha].pointers.length
         );
 
         // Handle token operations - delegate all logic to TokenManager
@@ -350,23 +372,23 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             '"},{"trait_type":"Initial Owner","value":"',
             etsc.initialOwner.toHexString(),
             '"},{"trait_type":"Content SHA","value":"',
-            uint256(etsc.contentSha).toHexString()
+            uint256(etsc.content.contentSha).toHexString()
         );
 
         string memory part2 = string.concat(
             '"},{"trait_type":"MIME Type","value":"',
-            etsc.mimetype.escapeJSON(),
+            etsc.content.mimetype.escapeJSON(),
             '"},{"trait_type":"Media Type","value":"',
-            etsc.mediaType.escapeJSON(),
+            etsc.content.mediaType.escapeJSON(),
             '"},{"trait_type":"MIME Subtype","value":"',
-            etsc.mimeSubtype.escapeJSON(),
+            etsc.content.mimeSubtype.escapeJSON(),
             '"},{"trait_type":"ESIP-6","value":"',
-            etsc.esip6 ? "true" : "false"
+            etsc.content.esip6 ? "true" : "false",
+            '"},{"trait_type":"Was Base64","value":"',
+            etsc.content.wasBase64 ? "true" : "false"
         );
 
         string memory part3 = string.concat(
-            '"},{"trait_type":"Compressed","value":"',
-            etsc.isCompressed ? "true" : "false",
             '"},{"trait_type":"L1 Block Number","display_type":"number","value":',
             uint256(etsc.l1BlockNumber).toString(),
             '},{"trait_type":"L2 Block Number","display_type":"number","value":',
@@ -382,54 +404,33 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     /// @dev Helper function to get content as data URI
     function _getContentDataURI(bytes32 txHash) internal view returns (string memory) {
         Ethscription memory etsc = ethscriptions[txHash];
-        address[] memory pointers = _contentBySha[etsc.contentSha];
-        require(pointers.length > 0, "No content stored");
+        ContentData storage contentData = _contentBySha[etsc.content.contentSha];
+        require(contentData.contentSha != bytes32(0), "No content stored");
 
         bytes memory content;
+        if (contentData.size > 0) {
+            content = _readFromPointers(contentData.pointers);
+        }
+        // For empty content, content remains empty bytes
 
-        if (pointers.length == 1) {
-            // Single pointer - simple read
-            content = SSTORE2.read(pointers[0]);
+        // Use the same encoding as the original data URI
+        if (etsc.content.wasBase64) {
+            return string.concat(
+                "data:",
+                etsc.content.mimetype,
+                ";base64,",
+                Base64.encode(content)
+            );
         } else {
-            // Multiple pointers - efficient assembly concatenation
-            assembly {
-                // Calculate total size needed
-                let totalSize := 0
-                let pointersLength := mload(pointers)
-                let dataOffset := 0x01 // SSTORE2 data starts after STOP opcode (0x00)
-
-                for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
-                    let pointer := mload(add(pointers, add(0x20, mul(i, 0x20))))
-                    let codeSize := extcodesize(pointer)
-                    totalSize := add(totalSize, sub(codeSize, dataOffset))
-                }
-
-                // Allocate result buffer
-                content := mload(0x40)
-                let contentPtr := add(content, 0x20)
-
-                // Copy data from each pointer
-                let currentOffset := 0
-                for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
-                    let pointer := mload(add(pointers, add(0x20, mul(i, 0x20))))
-                    let codeSize := extcodesize(pointer)
-                    let chunkSize := sub(codeSize, dataOffset)
-                    extcodecopy(pointer, add(contentPtr, currentOffset), dataOffset, chunkSize)
-                    currentOffset := add(currentOffset, chunkSize)
-                }
-
-                // Update length and free memory pointer with proper alignment
-                mstore(content, totalSize)
-                mstore(0x40, and(add(add(contentPtr, totalSize), 0x1f), not(0x1f)))
-            }
+            // For non-base64, we need to preserve the original encoding
+            // This is handled by the node which passes the correctly encoded content
+            return string.concat(
+                "data:",
+                etsc.content.mimetype,
+                ",",
+                string(content)
+            );
         }
-
-        // Decompress if needed
-        if (etsc.isCompressed) {
-            content = LibZip.flzDecompress(content);
-        }
-
-        return string(content);
     }
 
     /// @notice Get current owner of an ethscription
@@ -451,72 +452,122 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     /// @notice Get the number of content pointers for an ethscription
     function getContentPointerCount(bytes32 transactionHash) external view requireExists(transactionHash) returns (uint256) {
         Ethscription memory etsc = ethscriptions[transactionHash];
-        return _contentBySha[etsc.contentSha].length;
+        return _contentBySha[etsc.content.contentSha].pointers.length;
     }
-    
+
     /// @notice Get all content pointers for an ethscription
     function getContentPointers(bytes32 transactionHash) external view requireExists(transactionHash) returns (address[] memory) {
         Ethscription memory etsc = ethscriptions[transactionHash];
-        return _contentBySha[etsc.contentSha];
+        return _contentBySha[etsc.content.contentSha].pointers;
     }
-    
+
     /// @notice Read a specific chunk of content
     /// @param transactionHash The ethscription transaction hash
     /// @param index The chunk index to read
     /// @return The chunk data
     function readChunk(bytes32 transactionHash, uint256 index) external view requireExists(transactionHash) returns (bytes memory) {
         Ethscription memory etsc = ethscriptions[transactionHash];
-        address[] memory pointers = _contentBySha[etsc.contentSha];
-        require(index < pointers.length, "Chunk index out of bounds");
-        return SSTORE2.read(pointers[index]);
+        ContentData storage contentData = _contentBySha[etsc.content.contentSha];
+        require(index < contentData.pointers.length, "Chunk index out of bounds");
+        return SSTORE2.read(contentData.pointers[index]);
     }
     
     /// @notice Internal helper to store content and return its SHA
-    /// @param contentUri The content to store
-    /// @param isCompressed Whether the content is compressed
-    /// @param esip6 Whether this is an ESIP6 ethscription
+    /// @param content The raw content bytes to store
     /// @return contentSha The SHA256 hash of the content
-    function _storeContent(
-        bytes calldata contentUri,
-        bool isCompressed,
-        bool esip6
-    ) internal returns (bytes32 contentSha) {
-        // If compressed, decompress to compute SHA of original content
-        bytes memory actualContent = isCompressed 
-            ? LibZip.flzDecompress(contentUri)
-            : contentUri;
-        
-        // Compute SHA of original (decompressed) content
-        contentSha = sha256(actualContent);
-        
+    function _storeContent(bytes calldata content) internal returns (bytes32 contentSha) {
+        // Compute SHA of raw bytes
+        contentSha = sha256(content);
+
         // Check if content already exists
-        address[] storage pointers = _contentBySha[contentSha];
-        uint256 existingLength = pointers.length;
-        
-        if (existingLength > 0 && !esip6) {
-            revert DuplicateContent();
+        ContentData storage existingContent = _contentBySha[contentSha];
+
+        // Check if content was already stored (contentSha will be non-zero for stored content)
+        if (existingContent.contentSha != bytes32(0)) {
+            // Content already stored, just return the SHA
+            return contentSha;
         }
-        
-        if (existingLength == 0) {
-            // New content: chunk and store via SSTORE2
-            uint256 contentLength = contentUri.length;
+
+        // New content: chunk and store via SSTORE2
+        uint256 contentLength = content.length;
+
+        address[] memory pointers;
+
+        if (contentLength > 0) {
             uint256 numChunks = (contentLength + CHUNK_SIZE - 1) / CHUNK_SIZE;
-            
+            pointers = new address[](numChunks);
+
             for (uint256 i = 0; i < numChunks; i++) {
                 uint256 start = i * CHUNK_SIZE;
                 uint256 end = start + CHUNK_SIZE;
                 if (end > contentLength) {
                     end = contentLength;
                 }
-                
-                // Calldata slicing avoids copying to memory here, but SSTORE2.write will copy the chunk to memory before storing.
-                bytes calldata chunk = contentUri[start:end];
-                
+
+                // Calldata slicing for efficiency
+                bytes calldata chunk = content[start:end];
+
                 // Store chunk via SSTORE2
-                address pointer = SSTORE2.write(chunk);
-                pointers.push(pointer);
+                pointers[i] = SSTORE2.write(chunk);
             }
         }
-        // For ESIP6 with existing content, pointers already contains the addresses
+        // For empty content, pointers remains an empty array
+
+        // Store content data (only raw bytes info, no metadata)
+        _contentBySha[contentSha] = ContentData({
+            contentSha: contentSha,
+            pointers: pointers,
+            size: contentLength
+        });
+
+        return contentSha;
+    }
+
+    /// @dev Read content from multiple SSTORE2 pointers
+    function _readFromPointers(address[] storage pointers) private view returns (bytes memory) {
+        if (pointers.length == 1) {
+            return SSTORE2.read(pointers[0]);
+        }
+
+        // Multiple pointers - efficient assembly concatenation
+        bytes memory content;
+        assembly {
+            // Calculate total size needed
+            let totalSize := 0
+            let pointersSlot := pointers.slot
+            let pointersLength := sload(pointersSlot)
+            let dataOffset := 0x01 // SSTORE2 data starts after STOP opcode
+
+            for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
+                // Array elements are stored at keccak256(slot) + index
+                mstore(0, pointersSlot)
+                let elementSlot := add(keccak256(0, 0x20), i)
+                let pointer := sload(elementSlot)
+                let codeSize := extcodesize(pointer)
+                totalSize := add(totalSize, sub(codeSize, dataOffset))
+            }
+
+            // Allocate result buffer
+            content := mload(0x40)
+            let contentPtr := add(content, 0x20)
+
+            // Copy data from each pointer
+            let currentOffset := 0
+            for { let i := 0 } lt(i, pointersLength) { i := add(i, 1) } {
+                mstore(0, pointersSlot)
+                let elementSlot := add(keccak256(0, 0x20), i)
+                let pointer := sload(elementSlot)
+                let codeSize := extcodesize(pointer)
+                let chunkSize := sub(codeSize, dataOffset)
+                extcodecopy(pointer, add(contentPtr, currentOffset), dataOffset, chunkSize)
+                currentOffset := add(currentOffset, chunkSize)
+            }
+
+            // Update length and free memory pointer with proper alignment
+            mstore(content, totalSize)
+            mstore(0x40, and(add(add(contentPtr, totalSize), 0x1f), not(0x1f)))
+        }
+
+        return content;
     }
 }

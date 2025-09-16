@@ -12,24 +12,12 @@ contract EthscriptionsBurnTest is TestSetup {
         super.setUp();
         
         // Create a test ethscription owned by alice
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: testTxHash,
-            initialOwner: alice,
-            contentUri: bytes("data:text/plain,Hello World"),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        });
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            testTxHash,
+            alice,
+            "data:text/plain,Hello World",
+            false
+        );
         
         vm.prank(alice);
         ethscriptions.createEthscription(params);
@@ -153,24 +141,12 @@ contract EthscriptionsBurnTest is TestSetup {
     function testBurnCallsTokenManagerHandleTransfer() public {
         // Create a simple non-token ethscription first to test basic burn
         bytes32 simpleTxHash = keccak256("simple_tx");
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: simpleTxHash,
-            initialOwner: alice,
-            contentUri: bytes("data:text/plain,Simple text"),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        });
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            simpleTxHash,
+            alice,
+            "data:text/plain,Simple text",
+            false
+        );
         
         vm.prank(alice);
         ethscriptions.createEthscription(params);

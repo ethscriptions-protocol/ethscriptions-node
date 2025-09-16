@@ -22,25 +22,34 @@ contract GenesisEthscriptions is Ethscriptions {
         bytes32 l1BlockHash
     ) public returns (uint256 tokenId) {
         require(creator != address(0), "Invalid creator");
-        // Allow address(0) as initial owner for burned ethscriptions
-        require(params.contentUri.length > 0, "Empty content URI");
         require(ethscriptions[params.transactionHash].creator == address(0), "Ethscription already exists");
 
+        // Check protocol uniqueness using content URI hash
+        if (_contentUriExists[params.contentUriHash]) {
+            if (!params.esip6) revert DuplicateContentUri();
+        }
+
         // Store content and get content SHA (reusing parent's helper)
-        bytes32 contentSha = _storeContent(params.contentUri, params.isCompressed, params.esip6);
+        bytes32 contentSha = _storeContent(params.content);
+
+        // Mark content URI as used
+        _contentUriExists[params.contentUriHash] = true;
 
         // Set all values including genesis-specific ones
         ethscriptions[params.transactionHash] = Ethscription({
-            contentSha: contentSha,
+            content: ContentInfo({
+                contentUriHash: params.contentUriHash,
+                contentSha: contentSha,
+                mimetype: params.mimetype,
+                mediaType: params.mediaType,
+                mimeSubtype: params.mimeSubtype,
+                wasBase64: params.wasBase64,
+                esip6: params.esip6
+            }),
             creator: creator,
             initialOwner: params.initialOwner,
             previousOwner: creator,
             ethscriptionNumber: totalSupply,
-            mimetype: params.mimetype,
-            mediaType: params.mediaType,
-            mimeSubtype: params.mimeSubtype,
-            esip6: params.esip6,
-            isCompressed: params.isCompressed,
             createdAt: createdAt,
             l1BlockNumber: l1BlockNumber,
             l2BlockNumber: 0,  // Genesis ethscriptions have no L2 block
@@ -69,7 +78,7 @@ contract GenesisEthscriptions is Ethscriptions {
             params.initialOwner,
             contentSha,
             tokenId,
-            _contentBySha[contentSha].length
+            _contentBySha[contentSha].pointers.length
         );
 
         // Skip token handling for genesis
@@ -267,16 +276,18 @@ contract L2Genesis is Script {
         uint256 blockNumber = vm.parseJsonUint(json, string.concat(basePath, ".block_number"));
         bytes32 blockHash = vm.parseJsonBytes32(json, string.concat(basePath, ".block_blockhash"));
         
-        // Create params struct with parsed data
+        // Create params struct with parsed data from JSON
+        // The JSON already has all the properly processed data
         Ethscriptions.CreateEthscriptionParams memory params;
         params.transactionHash = vm.parseJsonBytes32(json, string.concat(basePath, ".transaction_hash"));
+        params.contentUriHash = vm.parseJsonBytes32(json, string.concat(basePath, ".content_uri_hash"));
         params.initialOwner = initialOwner;
-        params.contentUri = bytes(vm.parseJsonString(json, string.concat(basePath, ".content_uri")));
+        params.content = vm.parseJsonBytes(json, string.concat(basePath, ".content"));
         params.mimetype = vm.parseJsonString(json, string.concat(basePath, ".mimetype"));
         params.mediaType = vm.parseJsonString(json, string.concat(basePath, ".media_type"));
         params.mimeSubtype = vm.parseJsonString(json, string.concat(basePath, ".mime_subtype"));
+        params.wasBase64 = vm.parseJsonBool(json, string.concat(basePath, ".was_base64"));
         params.esip6 = vm.parseJsonBool(json, string.concat(basePath, ".esip6"));
-        params.isCompressed = false;
         params.tokenParams = Ethscriptions.TokenParams({
             op: "",
             protocol: "",
@@ -342,4 +353,5 @@ contract L2Genesis is Script {
             ret = "ProxyAdmin";
         }
     }
+
 }

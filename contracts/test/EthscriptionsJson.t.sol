@@ -33,24 +33,12 @@ contract EthscriptionsJsonTest is TestSetup {
         
         // Note: l1BlockNumber, l1BlockTimestamp, l1BlockHash, transactionIndex are read but no longer used
 
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: initialOwner,
-            contentUri: bytes(contentUri),
-            mimetype: mimetype,
-            mediaType: mediaType,
-            mimeSubtype: mimeSubtype,
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        });
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            txHash,
+            initialOwner,
+            contentUri,
+            false
+        );
 
         vm.startPrank(creator);
         uint256 g0 = gasleft();
@@ -144,24 +132,12 @@ contract EthscriptionsJsonTest is TestSetup {
         
         // Note: l1BlockNumber, l1BlockTimestamp, l1BlockHash, transactionIndex are read but no longer used
 
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: initialOwner,
-            contentUri: bytes(contentUri),
-            mimetype: mimetype,
-            mediaType: mediaType,
-            mimeSubtype: mimeSubtype,
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        });
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            txHash,
+            initialOwner,
+            contentUri,
+            false
+        );
 
         // Create ethscription
         vm.startPrank(creator);
@@ -199,58 +175,47 @@ contract EthscriptionsJsonTest is TestSetup {
     
     function test_ReadChunk() public {
         // Create a multi-chunk ethscription
-        bytes memory largeContent = new bytes(50000); // ~2 chunks
+        bytes memory largeContent = new bytes(50000); // ~2 chunks of raw content
         for (uint i = 0; i < largeContent.length; i++) {
             largeContent[i] = bytes1(uint8(65 + (i % 26)));
         }
-        bytes memory contentUri = abi.encodePacked("data:text/plain;base64,", largeContent);
-        
+        // Create a data URI with this content
+        bytes memory contentUri = abi.encodePacked("data:text/plain,", largeContent);
+
         bytes32 txHash = bytes32(uint256(999));
         address creator = address(0xBEEF);
         address initialOwner = address(0xCAFE);
-        
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: initialOwner,
-            contentUri: bytes(contentUri),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        });
-        
+
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            txHash,
+            initialOwner,
+            string(contentUri),
+            false
+        );
+
         vm.prank(creator);
         eth.createEthscription(params);
-        
-        // Test readChunk
+
+        // Test readChunk - now it stores raw content only
         uint256 pointerCount = eth.getContentPointerCount(txHash);
-        assertEq(pointerCount, 3, "Should have 3 chunks"); // 50023 bytes total = 3 chunks
-        
+        assertEq(pointerCount, 3, "Should have 3 chunks"); // 50000 bytes = 3 chunks
+
         // Read first chunk
         bytes memory chunk0 = eth.readChunk(txHash, 0);
         assertEq(chunk0.length, 24575, "First chunk should be full size");
-        
-        // Read last chunk  
+
+        // Read last chunk
         bytes memory chunk2 = eth.readChunk(txHash, 2);
-        uint256 totalLength = contentUri.length;
+        uint256 totalLength = largeContent.length; // Use largeContent length, not contentUri
         uint256 expectedLastChunkSize = totalLength - (24575 * 2);
         assertEq(chunk2.length, expectedLastChunkSize, "Last chunk should be remainder");
-        
+
         // Verify content matches when reassembled from chunks
         bytes memory reconstructed;
         for (uint256 i = 0; i < pointerCount; i++) {
             reconstructed = abi.encodePacked(reconstructed, eth.readChunk(txHash, i));
         }
-        assertEq(reconstructed, contentUri, "Reconstructed chunks should match original");
+        assertEq(reconstructed, largeContent, "Reconstructed chunks should match original content");
 
         // Also verify tokenURI returns valid JSON
         string memory tokenUri = eth.tokenURI(eth.getTokenId(txHash));
@@ -274,24 +239,12 @@ contract EthscriptionsJsonTest is TestSetup {
         
         bytes32 txHash = bytes32(uint256(0xEEEE));
         vm.prank(address(0xAAAA));
-        uint256 tokenId = eth.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: address(0xBBBB),
-            contentUri: contentUri,
-            mimetype: "application/octet-stream",
-            mediaType: "application",
-            mimeSubtype: "octet-stream",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
+        uint256 tokenId = eth.createEthscription(createTestParams(
+            txHash,
+            address(0xBBBB),
+            string(contentUri),
+            false
+        ));
         
         // Verify we have exactly 2 chunks
         assertEq(eth.getContentPointerCount(txHash), targetChunks, "Should have exactly 2 chunks");
@@ -314,43 +267,31 @@ contract EthscriptionsJsonTest is TestSetup {
         // Test with size that doesn't align to chunk boundaries (30000 bytes = 1.22 chunks)
         uint256 oddSize = 30000;
         bytes memory content = new bytes(oddSize);
-        
+
         // Fill with a different pattern - use prime number for more irregularity
         for (uint256 i = 0; i < oddSize; i++) {
             content[i] = bytes1(uint8((i * 17 + 23) % 256));
         }
-        
-        bytes memory contentUri = abi.encodePacked("data:text/plain;base64,", content);
-        
+
+        bytes memory contentUri = abi.encodePacked("data:text/plain,", content);
+
         bytes32 txHash = bytes32(uint256(0xDDDD));
         vm.prank(address(0xCCCC));
-        uint256 tokenId = eth.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: address(0xEEEE),
-            contentUri: contentUri,
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
-        
-        // Verify we have 2 chunks (24575 + 5450 bytes)
+        uint256 tokenId = eth.createEthscription(createTestParams(
+            txHash,
+            address(0xEEEE),
+            string(contentUri),
+            false
+        ));
+
+        // Verify we have 2 chunks (24575 + 5425 bytes for raw content)
         assertEq(eth.getContentPointerCount(txHash), 2, "Should have 2 chunks");
-        
+
         // Verify second chunk has correct size
         bytes memory secondChunk = eth.readChunk(txHash, 1);
-        uint256 expectedSecondChunkSize = contentUri.length - 24575;
+        uint256 expectedSecondChunkSize = content.length - 24575; // Use content length, not URI
         assertEq(secondChunk.length, expectedSecondChunkSize, "Second chunk size mismatch");
-        
+
         // Read back and verify in JSON metadata
         string memory retrieved = eth.tokenURI(tokenId);
         assertTrue(startsWith(retrieved, "data:application/json;base64,"), "Should return JSON metadata");
@@ -360,39 +301,26 @@ contract EthscriptionsJsonTest is TestSetup {
         bytes memory decodedJson = Base64.decode(string(base64Part));
         string memory json = string(decodedJson);
 
-        // Verify the JSON contains our content
-        assertTrue(contains(json, '"image":"data:text/plain;base64,'), "JSON should contain content in image field");
-        assertTrue(bytes(json).length > contentUri.length, "JSON should be larger than raw content");
+        // Verify the JSON contains our content (non-base64 since we didn't use base64 in the original)
+        assertTrue(contains(json, '"image":"data:text/plain,'), "JSON should contain content in image field");
     }
     
     function test_SingleByteContent() public {
-        // Edge case: single byte
-        bytes memory contentUri = hex"42"; // Single byte: 'B'
-        
+        // Edge case: single byte content in data URI
+        string memory singleByteUri = "data:,B"; // Single byte: 'B'
+
         bytes32 txHash = bytes32(uint256(0x9999));
         vm.prank(address(0x7777));
-        uint256 tokenId = eth.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: address(0x8888),
-            contentUri: contentUri,
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
-        
+        uint256 tokenId = eth.createEthscription(createTestParams(
+            txHash,
+            address(0x8888),
+            singleByteUri,
+            false
+        ));
+
         // Verify single chunk
         assertEq(eth.getContentPointerCount(txHash), 1, "Should have 1 chunk");
-        
+
         // Verify content in JSON metadata
         string memory retrieved = eth.tokenURI(tokenId);
         assertTrue(startsWith(retrieved, "data:application/json;base64,"), "Should return JSON metadata");
@@ -402,107 +330,67 @@ contract EthscriptionsJsonTest is TestSetup {
         bytes memory decodedJson = Base64.decode(string(base64Part));
         string memory json = string(decodedJson);
 
-        // Check the image field contains our single byte (0x42 = 'B')
-        assertTrue(contains(json, '"image":"B"'), "JSON should contain single byte content 'B'");
+        // Check the image field contains our single byte as data URI
+        assertTrue(contains(json, '"image":"data:text/plain,B"'), "JSON should contain single byte content 'B'");
     }
     
     function test_EmptyStringBoundaryCase() public {
-        // Edge case: empty content should revert
-        bytes memory contentUri = "";
-        
+        // Edge case: empty content should be allowed (valid data URIs can have empty payloads like "data:,")
+        string memory contentUri = "data:,";
+
         bytes32 txHash = bytes32(uint256(0x5555));
         vm.prank(address(0x4444));
-        vm.expectRevert(Ethscriptions.EmptyContentUri.selector);
-        eth.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: address(0x3333),
-            contentUri: contentUri,
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
+        uint256 tokenId = eth.createEthscription(createTestParams(
+            txHash,
+            address(0x3333),
+            contentUri,
+            false
+        ));
+
+        // Verify it was created successfully with empty content
+        Ethscriptions.Ethscription memory etsc = eth.getEthscription(txHash);
+        assertEq(etsc.ethscriptionNumber, tokenId, "Should create ethscription with empty content");
+
+        // Verify tokenURI works with empty content
+        string memory tokenUri = eth.tokenURI(tokenId);
+        assertTrue(bytes(tokenUri).length > 0, "Should return valid tokenURI for empty content");
     }
     
     function test_ESIP6_ContentDeduplication() public {
-        bytes memory contentUri = hex"48656c6c6f20576f726c64"; // "Hello World"
-        
+        string memory contentUri = "data:,Hello World";
+
         // First ethscription - should store content
         bytes32 txHash1 = bytes32(uint256(0xAAA1));
         vm.prank(address(0x1111));
-        eth.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash1,
-            initialOwner: address(0x2222),
-            contentUri: contentUri,
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
-        
+        eth.createEthscription(createTestParams(
+            txHash1,
+            address(0x2222),
+            contentUri,
+            false
+        ));
+
         // Second ethscription with same content, no ESIP6 - should fail
         bytes32 txHash2 = bytes32(uint256(0xAAA2));
+        Ethscriptions.CreateEthscriptionParams memory duplicateParams = createTestParams(
+            txHash2,
+            address(0x4444),
+            contentUri,
+            false
+        );
         vm.prank(address(0x3333));
-        vm.expectRevert(Ethscriptions.DuplicateContent.selector);
-        eth.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash2,
-            initialOwner: address(0x4444),
-            contentUri: contentUri,
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
-        
+        vm.expectRevert(Ethscriptions.DuplicateContentUri.selector);
+        eth.createEthscription(duplicateParams);
+
         // Third ethscription with same content, ESIP6 enabled - should succeed and reuse pointers
         bytes32 txHash3 = bytes32(uint256(0xAAA3));
         vm.prank(address(0x5555));
         uint256 gasBeforeEsip6 = gasleft();
-        eth.createEthscription(Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash3,
-            initialOwner: address(0x6666),
-            contentUri: contentUri,
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: true,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        }));
+        eth.createEthscription(createTestParams(
+            txHash3,
+            address(0x6666),
+            contentUri,
+            true
+        ));
         uint256 esip6Gas = gasBeforeEsip6 - gasleft();
         
         // Verify both ethscriptions return JSON with same content
@@ -517,9 +405,9 @@ contract EthscriptionsJsonTest is TestSetup {
         bytes memory json1 = Base64.decode(string(bytes(substring(uri1, 29, bytes(uri1).length))));
         bytes memory json3 = Base64.decode(string(bytes(substring(uri3, 29, bytes(uri3).length))));
 
-        // Both should contain the same content in image field
-        assertTrue(contains(string(json1), '"image":"Hello World"'), "JSON1 should contain content");
-        assertTrue(contains(string(json3), '"image":"Hello World"'), "JSON3 should contain content");
+        // Both should contain the same content in image field (as data URI)
+        assertTrue(contains(string(json1), '"image":"data:text/plain,Hello World"'), "JSON1 should contain content");
+        assertTrue(contains(string(json3), '"image":"data:text/plain,Hello World"'), "JSON3 should contain content");
 
         // Verify they have different ethscription numbers but same content
         assertTrue(contains(string(json1), '"name":"Ethscription #11"'), "JSON1 should be #11");
@@ -547,24 +435,12 @@ contract EthscriptionsJsonTest is TestSetup {
         address creator = address(0x1234);
         address initialOwner = address(0x5678);
         
-        Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
-            transactionHash: txHash,
-            initialOwner: initialOwner,
-            contentUri: bytes(contentUri),
-            mimetype: "text/plain",
-            mediaType: "text",
-            mimeSubtype: "plain",
-            esip6: false,
-            isCompressed: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
-                protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
-            })
-        });
+        Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
+            txHash,
+            initialOwner,
+            string(contentUri),
+            false
+        );
         
         vm.startPrank(creator);
         uint256 g0 = gasleft();
