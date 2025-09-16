@@ -120,6 +120,19 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     error EthscriptionAlreadyExists();
     error EthscriptionDoesNotExist();
 
+    /// @notice Emitted when a TokenManager operation fails but ethscription continues
+    event TokenManagerFailed(
+        bytes32 indexed transactionHash,
+        string operation,
+        bytes revertData
+    );
+
+    /// @notice Emitted when a prover operation fails but ethscription continues
+    event ProverFailed(
+        bytes32 indexed transactionHash,
+        bytes revertData
+    );
+
     /// @notice Check if an ethscription exists
     /// @dev An ethscription exists if it has been created (has a creator set)
     /// @param transactionHash The transaction hash to check
@@ -216,11 +229,16 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
 
         // Handle token operations - delegate all logic to TokenManager
         // No need to check if it's a token operation, handleTokenOperation will check the op
-        tokenManager.handleTokenOperation(
+        // Use try-catch to prevent TokenManager failures from reverting ethscription creation
+        try tokenManager.handleTokenOperation(
             params.transactionHash,
             params.initialOwner,
             params.tokenParams
-        );
+        ) {} catch (bytes memory revertData) {
+            // Token operation failed, but ethscription creation should continue
+            // The ethscription is still valid even if token processing fails
+            emit TokenManagerFailed(params.transactionHash, "handleTokenOperation", revertData);
+        }
     }
 
     /// @notice Transfer an ethscription
@@ -311,10 +329,20 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             // Transfers (including creator -> address(0))
             emit EthscriptionTransferred(txHash, from, to, tokenId);
             etsc.previousOwner = from;
-            tokenManager.handleTokenTransfer(txHash, from, to);
+
+            // Use try-catch to prevent TokenManager failures from reverting transfers
+            try tokenManager.handleTokenTransfer(txHash, from, to) {} catch (bytes memory revertData) {
+                // Token transfer handling failed, but ethscription transfer should continue
+                emit TokenManagerFailed(txHash, "handleTokenTransfer", revertData);
+            }
         }
 
-        prover.proveEthscriptionData(txHash);
+        // Use try-catch to prevent prover failures from reverting operations
+        try prover.proveEthscriptionData(txHash) {} catch (bytes memory revertData) {
+            // Proving failed, but the operation should continue
+            // The prover can be called again later if needed
+            emit ProverFailed(txHash, revertData);
+        }
     }
 
     /// @notice Get ethscription details (returns struct to avoid stack too deep)

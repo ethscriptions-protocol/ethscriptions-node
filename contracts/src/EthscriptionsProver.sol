@@ -94,7 +94,7 @@ contract EthscriptionsProver {
     
     /// @notice Prove ethscription existence and metadata
     /// @param ethscriptionTxHash The transaction hash of the ethscription
-    function proveEthscriptionData(bytes32 ethscriptionTxHash) external {
+    function proveEthscriptionData(bytes32 ethscriptionTxHash) external virtual {
         // Get ethscription data including previous owner
         Ethscriptions.Ethscription memory etsc = ethscriptions.getEthscription(ethscriptionTxHash);
         address currentOwner = ethscriptions.currentOwner(ethscriptionTxHash);

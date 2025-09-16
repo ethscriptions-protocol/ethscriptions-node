@@ -74,7 +74,7 @@ contract TokenManager {
         bytes32 ethscriptionTxHash,
         address initialOwner,
         Ethscriptions.TokenParams calldata params
-    ) external onlyEthscriptions {
+    ) external virtual onlyEthscriptions {
         // Early return if not a token operation
         if (bytes(params.op).length == 0) return;
         
@@ -116,7 +116,7 @@ contract TokenManager {
         bytes32 ethscriptionTxHash,
         address from,
         address to
-    ) external onlyEthscriptions {
+    ) external virtual onlyEthscriptions {
         TokenItem memory item = tokenItems[ethscriptionTxHash];
         if (item.deployTxHash == bytes32(0)) {
             // Not a token item, nothing to do

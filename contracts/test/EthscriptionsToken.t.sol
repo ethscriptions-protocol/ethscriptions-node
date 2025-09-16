@@ -8,10 +8,17 @@ contract EthscriptionsTokenTest is TestSetup {
     address alice = address(0x1);
     address bob = address(0x2);
     address charlie = address(0x3);
-    
+
     bytes32 constant DEPLOY_TX_HASH = bytes32(uint256(0x1234));
     bytes32 constant MINT_TX_HASH_1 = bytes32(uint256(0x5678));
     bytes32 constant MINT_TX_HASH_2 = bytes32(uint256(0x9ABC));
+
+    // Event for tracking token manager failures
+    event TokenManagerFailed(
+        bytes32 indexed transactionHash,
+        string operation,
+        bytes revertData
+    );
     
     function setUp() public override {
         super.setUp();
@@ -244,9 +251,10 @@ contract EthscriptionsTokenTest is TestSetup {
             })
         ));
         
-        // Try to mint beyond max supply - should revert
+        // Try to mint beyond max supply - should fail silently with event
+        bytes32 exceedTxHash = bytes32(uint256(0xBEEF3));
         Ethscriptions.CreateEthscriptionParams memory exceedParams = createTokenParams(
-            bytes32(uint256(0xBEEF3)),
+            exceedTxHash,
             alice,
             'data:,{"p":"erc-20","op":"mint","tick":"SMALL","id":"3","amt":"1000"}',
             Ethscriptions.TokenParams({
@@ -259,9 +267,20 @@ contract EthscriptionsTokenTest is TestSetup {
             })
         );
 
+        // Expect TokenManagerFailed event (will fail due to exceeding cap)
+        vm.expectEmit(true, false, false, false);
+        emit TokenManagerFailed(exceedTxHash, "", "");
+
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ERC20CappedUpgradeable.ERC20ExceededCap.selector, 3000 ether, 2000 ether));
-        ethscriptions.createEthscription(exceedParams);
+        uint256 tokenId = ethscriptions.createEthscription(exceedParams);
+
+        // Ethscription should still be created (but mint failed)
+        assertEq(ethscriptions.ownerOf(tokenId), alice);
+
+        // Verify supply didn't increase
+        address tokenAddress = tokenManager.getTokenAddressByTick("erc-20", "SMALL");
+        EthscriptionsERC20 token = EthscriptionsERC20(tokenAddress);
+        assertEq(token.totalSupply(), 2000 ether); // Should still be at max
     }
     
     function testCannotTransferERC20Directly() public {
@@ -292,12 +311,13 @@ contract EthscriptionsTokenTest is TestSetup {
     function testMintAmountMustMatch() public {
         // Deploy token with lim=1000
         testTokenDeploy();
-        
-        // Try to mint with wrong amount - should revert
+
+        // Try to mint with wrong amount - should fail silently with event
         string memory wrongAmountContent = 'data:,{"p":"erc-20","op":"mint","tick":"TEST","id":"1","amt":"500"}';
 
+        bytes32 wrongTxHash = bytes32(uint256(0xBAD));
         Ethscriptions.CreateEthscriptionParams memory wrongParams = createTokenParams(
-            bytes32(uint256(0xBAD)),
+            wrongTxHash,
             bob,
             wrongAmountContent,
             Ethscriptions.TokenParams({
@@ -310,21 +330,33 @@ contract EthscriptionsTokenTest is TestSetup {
             })
         );
 
+        // Expect TokenManagerFailed event (will fail due to amt mismatch)
+        vm.expectEmit(true, false, false, false);
+        emit TokenManagerFailed(wrongTxHash, "", "");
+
         vm.prank(bob);
-        vm.expectRevert("amt mismatch");
-        ethscriptions.createEthscription(wrongParams);
+        uint256 tokenId = ethscriptions.createEthscription(wrongParams);
+
+        // Ethscription should still be created (but mint failed)
+        assertEq(ethscriptions.ownerOf(tokenId), bob);
+
+        // Verify no tokens were minted
+        address tokenAddr = tokenManager.getTokenAddressByTick("erc-20", "TEST");
+        EthscriptionsERC20 token = EthscriptionsERC20(tokenAddr);
+        assertEq(token.balanceOf(bob), 0); // Bob should have no tokens
     }
     
     function testCannotDeployTokenTwice() public {
         // First deploy should succeed
         testTokenDeploy();
 
-        // Try to deploy the same token again with different parameters - should revert
+        // Try to deploy the same token again with different parameters - should fail silently with event
         // Different max supply in content to avoid duplicate content error
         string memory deployContent = 'data:,{"p":"erc-20","op":"deploy","tick":"TEST","max":"2000000","lim":"2000"}';
 
+        bytes32 duplicateTxHash = bytes32(uint256(0xABCD));
         Ethscriptions.CreateEthscriptionParams memory duplicateParams = createTokenParams(
-            bytes32(uint256(0xABCD)), // Different tx hash
+            duplicateTxHash,
             alice,
             deployContent,
             Ethscriptions.TokenParams({
@@ -337,8 +369,20 @@ contract EthscriptionsTokenTest is TestSetup {
             })
         );
 
+        // Expect TokenManagerFailed event (token manager will reject duplicate deploy)
+        vm.expectEmit(true, false, false, false);
+        emit TokenManagerFailed(duplicateTxHash, "", "");
+
         vm.prank(alice);
-        vm.expectRevert("Token already deployed");
-        ethscriptions.createEthscription(duplicateParams);
+        uint256 tokenId = ethscriptions.createEthscription(duplicateParams);
+
+        // Ethscription should still be created (but token deploy failed)
+        assertEq(ethscriptions.ownerOf(tokenId), alice);
+
+        // Verify the original token is still the only one
+        address tokenAddr = tokenManager.getTokenAddressByTick("erc-20", "TEST");
+        EthscriptionsERC20 token = EthscriptionsERC20(tokenAddr);
+        assertEq(token.name(), "erc-20 TEST");  // Format is "protocol tick"
+        assertEq(token.cap(), 1000000 ether); // Original cap, not the duplicate's
     }
 }
