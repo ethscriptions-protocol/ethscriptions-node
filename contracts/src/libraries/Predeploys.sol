@@ -19,7 +19,7 @@ library Predeploys {
     // Using 0xee namespace for Ethscriptions contracts
     
     /// @notice Ethscriptions NFT contract
-    address constant ETHSCRIPTIONS = 0x3300000000000000000000000000000000000001;
+    address constant ETHSCRIPTIONS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     
     /// @notice TokenManager for ERC20 token creation
     address constant TOKEN_MANAGER = 0x3300000000000000000000000000000000000002;

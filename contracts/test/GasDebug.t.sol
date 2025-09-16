@@ -4,6 +4,7 @@ pragma solidity ^0.8.15;
 import "forge-std/Test.sol";
 import "../src/Ethscriptions.sol";
 import "../script/L2Genesis.s.sol";
+import "../src/libraries/Predeploys.sol";
 
 contract GasDebugTest is Test {
     Ethscriptions public ethscriptions;
@@ -15,7 +16,7 @@ contract GasDebugTest is Test {
         genesis.runWithoutDump();
 
         // Get the deployed Ethscriptions contract
-        ethscriptions = Ethscriptions(0x3300000000000000000000000000000000000001);
+        ethscriptions = Ethscriptions(Predeploys.ETHSCRIPTIONS);
 
         // Check if it's deployed
         require(address(ethscriptions).code.length > 0, "Ethscriptions contract not deployed");
