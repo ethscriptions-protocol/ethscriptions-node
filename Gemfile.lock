@@ -16,7 +16,7 @@ GIT
 
 GIT
   remote: https://github.com/0xfacet/facet_rails_common.git
-  revision: dd72807b5e51dc6fd7969f320cbb9bedfa92c4a5
+  revision: 2d5cf107df9ea12bb7ab59a8b1ce4d38b4de483b
   specs:
     facet_rails_common (0.1.0)
       order_query (~> 0.5.3)
@@ -73,7 +73,7 @@ GEM
       erubi (~> 1.11)
       rails-dom-testing (~> 2.2)
       rails-html-sanitizer (~> 1.6)
-    active_record_query_trace (1.8.2)
+    active_record_query_trace (1.8.3)
       activerecord (>= 6.0.0)
     activejob (7.1.2)
       activesupport (= 7.1.2)
@@ -218,11 +218,8 @@ GEM
       net-protocol
     netrc (0.11.0)
     nio4r (2.7.0)
-    nokogiri (1.15.5-aarch64-linux)
-      racc (~> 1.4)
-    nokogiri (1.15.5-arm64-darwin)
-      racc (~> 1.4)
-    nokogiri (1.15.5-x86_64-linux)
+    nokogiri (1.15.5)
+      mini_portile2 (~> 2.8.2)
       racc (~> 1.4)
     oj (3.16.11)
       bigdecimal (>= 3.0)
@@ -391,6 +388,7 @@ PLATFORMS
   aarch64-linux
   arm64-darwin-20
   arm64-darwin-22
+  arm64-darwin-24
   x86_64-linux
 
 DEPENDENCIES
@@ -439,7 +437,7 @@ DEPENDENCIES
   tzinfo-data
 
 RUBY VERSION
-   ruby 3.2.2p53
+   ruby 3.4.4p34
 
 BUNDLED WITH
    2.4.14
