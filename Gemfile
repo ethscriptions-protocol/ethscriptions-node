@@ -6,7 +6,6 @@ ruby "3.4.4"
 gem "rails", "~> 7.1.2"
 
 # Use postgresql as the database for Active Record
-gem "pg", "1.6.2"
 
 # Use the Puma web server [https://github.com/puma/puma]
 gem "puma", ">= 5.0"
@@ -41,7 +40,6 @@ group :development do
   # Speed up commands on slow machines / big apps [https://github.com/rails/spring]
   # gem "spring"
   gem "stackprof", "~> 0.2.25"
-  gem "active_record_query_trace", "~> 1.8"
 end
 
 gem "dotenv-rails", "~> 2.8", groups: [:development, :test]
@@ -60,8 +58,6 @@ gem "eth", github: "0xFacet/eth.rb", branch: "sync/v0.5.16-nohex"
 gem 'sorbet', :group => :development
 gem 'sorbet-runtime'
 gem 'tapioca', require: false, :group => [:development, :test]
-
-gem "activerecord-import", "~> 1.5"
 
 gem "scout_apm", "~> 5.3"
 
@@ -91,7 +87,6 @@ gem "clockwork", "~> 3.0"
 
 gem "airbrake", "~> 13.0"
 gem "clipboard", "~> 2.0", :group => [:development, :test]
-gem "order_query", "~> 0.5.3"
 
 gem "parallel", "~> 1.25"
 
