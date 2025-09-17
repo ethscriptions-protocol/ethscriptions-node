@@ -21,12 +21,20 @@ class EventDecoder
   class << self
     def decode_receipt_logs(receipt)
       creations = []
-      transfers = []
-      protocol_transfers = []  # Ethscriptions protocol semantics
+      transfers = []  # Ethscriptions protocol semantics
 
-      return {creations: [], transfers: [], protocol_transfers: []} unless receipt && receipt['logs']
+      return {creations: [], transfers: []} unless receipt && receipt['logs']
+
+      tx_hash = receipt['transactionHash']&.downcase
+      transaction_index = receipt['transactionIndex']&.to_i(16)
 
       receipt['logs'].each do |log|
+        metadata = {
+          tx_hash: tx_hash,
+          transaction_index: transaction_index,
+          log_index: log['logIndex']&.to_i(16)
+        }
+
         case log['topics']&.first
         when ETHSCRIPTION_CREATED
           creation = decode_creation(log)
@@ -34,39 +42,30 @@ class EventDecoder
         when ETHSCRIPTION_TRANSFERRED
           # This is the Ethscriptions protocol transfer with correct semantics
           next unless log['address']&.downcase == ETHSCRIPTIONS_ADDRESS.downcase
-          transfer = decode_protocol_transfer(log)
-          protocol_transfers << transfer if transfer
-        when ERC721_TRANSFER
-          # Only process transfers from the Ethscriptions contract
-          next unless log['address']&.downcase == ETHSCRIPTIONS_ADDRESS.downcase
-          transfer = decode_transfer(log)
+          transfer = decode_protocol_transfer(log, metadata)
           transfers << transfer if transfer
         end
       end
 
       {
         creations: creations.compact,
-        transfers: transfers.compact,  # ERC-721 transfers (from address(0) for mints)
-        protocol_transfers: protocol_transfers.compact  # Ethscriptions protocol transfers
+        transfers: transfers.compact  # Ethscriptions protocol transfers
       }
     end
 
     def decode_block_receipts(receipts)
       all_creations = []
       all_transfers = []
-      all_protocol_transfers = []
 
       receipts.each do |receipt|
         data = decode_receipt_logs(receipt)
         all_creations.concat(data[:creations])
         all_transfers.concat(data[:transfers])
-        all_protocol_transfers.concat(data[:protocol_transfers])
       end
 
       {
         creations: all_creations,
-        transfers: all_transfers,  # ERC-721 transfers
-        protocol_transfers: all_protocol_transfers  # Ethscriptions protocol transfers
+        transfers: all_transfers  # Ethscriptions protocol transfers
       }
     end
 
@@ -109,31 +108,12 @@ class EventDecoder
       nil
     end
 
-    def decode_transfer(log)
-      return nil unless log['topics']&.size >= 4
-
-      # Event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
-      # All parameters are indexed
-      from = decode_address_from_topic(log['topics'][1])
-      to = decode_address_from_topic(log['topics'][2])
-      token_id = log['topics'][3]  # This is the ethscription tx hash
-
-      {
-        token_id: token_id,
-        from: from,
-        to: to
-      }
-    rescue => e
-      Rails.logger.error "Failed to decode transfer event: #{e.message}"
-      nil
-    end
-
-    def decode_protocol_transfer(log)
+    def decode_protocol_transfer(log, metadata = {})
       return nil unless log['topics']&.size >= 4
 
       # Event EthscriptionTransferred(bytes32 indexed transactionHash, address indexed from, address indexed to, uint256 ethscriptionNumber)
       # First 3 parameters are indexed, last one is in data
-      tx_hash = log['topics'][1]  # bytes32 transactionHash
+      tx_hash = log['topics'][1]&.downcase  # bytes32 transactionHash
       from = decode_address_from_topic(log['topics'][2])
       to = decode_address_from_topic(log['topics'][3])
 
@@ -148,7 +128,10 @@ class EventDecoder
         token_id: tx_hash,  # Use same field name for consistency
         from: from,
         to: to,
-        ethscription_number: ethscription_number
+        ethscription_number: ethscription_number,
+        tx_hash: metadata[:tx_hash],
+        transaction_index: metadata[:transaction_index],
+        log_index: metadata[:log_index]
       }
     rescue => e
       Rails.logger.error "Failed to decode protocol transfer event: #{e.message}"

@@ -14,7 +14,6 @@ REQUIRED_CONFIG = {
   'L1_GENESIS_BLOCK' => { description: 'L1 Genesis Block number', required: true },
   'BLOCK_IMPORT_BATCH_SIZE' => { description: 'Block import batch size', default: '2' },
   'VALIDATE_IMPORT' => { description: 'Enable validation (true/false)', default: 'false' },
-  'VALIDATE_STRICT' => { description: 'Halt on validation failure (true/false)', default: 'false' },
   'IMPORT_INTERVAL' => { description: 'Seconds between import attempts', default: '6' }
 }
 
@@ -84,7 +83,6 @@ puts "  L1 RPC: #{ENV['L1_RPC_URL'][0..30]}..."
 puts "  Geth RPC: #{ENV['NON_AUTH_GETH_RPC_URL']}"
 puts "  Batch Size: #{ENV['BLOCK_IMPORT_BATCH_SIZE']}"
 puts "  Validation: #{ENV['VALIDATE_IMPORT'] == 'true' ? 'ENABLED' : 'disabled'}"
-puts "  Strict Mode: #{ENV['VALIDATE_STRICT'] == 'true' ? 'ENABLED' : 'disabled'}"
 puts "  Import Interval: #{ENV['IMPORT_INTERVAL']}s"
 puts "="*80
 
@@ -173,12 +171,6 @@ module Clockwork
         Rails.logger.error e.backtrace.first(20).join("\n")
 
         puts "[#{Time.now}] ❌ Error: #{e.message}"
-
-        # For validation failures in strict mode, exit
-        if ENV['VALIDATE_STRICT'] == 'true' && e.message.include?('Validation failed')
-          puts "[#{Time.now}] Exiting due to validation failure in strict mode"
-          exit 1
-        end
 
         # For other errors, wait and retry
         puts "[#{Time.now}] Retrying in #{import_interval}s..."

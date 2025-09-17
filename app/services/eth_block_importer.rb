@@ -20,9 +20,7 @@ class EthBlockImporter
 
     # Validation configuration
     @validation_enabled = ENV.fetch('VALIDATE_IMPORT').casecmp?('true')
-    @validation_strict = ENV.fetch('VALIDATE_STRICT').casecmp?('true')
-    @validator = BlockValidator.new if @validation_enabled
-    @validation_stats = {passed: 0, failed: 0, skipped: 0}
+    @validation_stats = {passed: 0, failed: 0}
 
     # Create a shared thread pool for validation
     if @validation_enabled
@@ -36,7 +34,7 @@ class EthBlockImporter
       logger.info "Created validation thread pool with #{@validation_threads} threads"
     end
 
-    logger.info "EthBlockImporter initialized - Validation: #{@validation_enabled ? 'ENABLED' : 'disabled'}, Strict: #{@validation_strict ? 'YES' : 'no'}"
+    logger.info "EthBlockImporter initialized - Validation: #{@validation_enabled ? 'ENABLED' : 'disabled'}"
 
     MemeryExtensions.clear_all_caches!
 
@@ -443,22 +441,49 @@ class EthBlockImporter
 
       Concurrent::Promise.execute(executor: @validation_executor) do
         if l2_hashes.empty?
-          { block: l1_block_num, status: :skipped, message: "No L2 blocks found" }
+          {
+            block: l1_block_num,
+            status: :failed,
+            message: "No L2 blocks found for L1 block #{l1_block_num}",
+            errors: ["No L2 blocks found for L1 block #{l1_block_num}"]
+          }
         else
           begin
-            result = @validator.validate_l1_block(l1_block_num, l2_hashes)
-            {
-              block: l1_block_num,
-              status: result.success ? :passed : :failed,
-              result: result,
-              errors: result.errors
-            }
+            validator = BlockValidator.new
+            result = validator.validate_l1_block(l1_block_num, l2_hashes)
+
+            if result.stats[:api_unavailable]
+              {
+                block: l1_block_num,
+                status: :failed,
+                result: result,
+                errors: result.errors.presence || ["API unavailable for block #{l1_block_num}"],
+                message: "API unavailable for block #{l1_block_num}"
+              }
+            elsif result.stats[:incomplete_actual]
+              {
+                block: l1_block_num,
+                status: :failed,
+                result: result,
+                errors: result.errors.presence || ["Incomplete L2 receipts for block #{l1_block_num}"],
+                message: "Incomplete L2 receipts for block #{l1_block_num}"
+              }
+            else
+              payload = {
+                block: l1_block_num,
+                status: result.success ? :passed : :failed,
+                result: result,
+                errors: result.errors
+              }
+              payload
+            end
           rescue => e
             {
               block: l1_block_num,
               status: :error,
               message: e.message,
-              backtrace: e.backtrace.first(5)
+              backtrace: e.backtrace.first(5),
+              errors: [e.message]
             }
           end
         end
@@ -475,23 +500,16 @@ class EthBlockImporter
         validation[:result].log_summary(logger)
         @validation_stats[:passed] += 1
       when :failed
-        validation[:result].log_summary(logger)
+        validation[:result]&.log_summary(logger)
         @validation_stats[:failed] += 1
-        if @validation_strict
-          binding.irb
-          raise "Validation failed for L1 block #{validation[:block]}: #{validation[:errors].join('; ')}"
-        end
-      when :skipped
-        logger.warn "Validation: #{validation[:message]} for L1 block #{validation[:block]}"
-        @validation_stats[:skipped] += 1
+        binding.irb if ENV['DEBUG'] == '1'
+        raise "Validation failed for L1 block #{validation[:block]}: #{Array(validation[:errors]).join('; ')}"
       when :error
         logger.error "Validation error for block #{validation[:block]}: #{validation[:message]}"
         logger.error validation[:backtrace].join("\n") if ENV['DEBUG'] && validation[:backtrace]
         @validation_stats[:failed] += 1
-        if @validation_strict
-          binding.irb
-          raise "Validation failed for L1 block #{validation[:block]}: #{validation[:errors].join('; ')}"
-        end
+        binding.irb if ENV['DEBUG'] == '1'
+        raise "Validation failed for L1 block #{validation[:block]}: #{Array(validation[:errors]).join('; ')}"
       end
     end
 
@@ -510,7 +528,6 @@ class EthBlockImporter
     logger.info "Validation Summary: #{@validation_stats[:passed]}/#{total} passed (#{pass_rate}%)"
     logger.info "  Passed: #{@validation_stats[:passed]}"
     logger.info "  Failed: #{@validation_stats[:failed]}"
-    logger.info "  Skipped: #{@validation_stats[:skipped]}"
     logger.info "=" * 60
   end
 
@@ -523,7 +540,7 @@ class EthBlockImporter
     pass_rate = total > 0 ? (@validation_stats[:passed].to_f / total * 100).round(2) : 0
 
     "Validation: #{@validation_stats[:passed]}/#{total} passed (#{pass_rate}%), " \
-    "#{@validation_stats[:failed]} failed, #{@validation_stats[:skipped]} skipped"
+    "#{@validation_stats[:failed]} failed"
   end
 
   def shutdown

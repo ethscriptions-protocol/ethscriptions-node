@@ -120,12 +120,19 @@ class EthscriptionsApiClient
 
     def normalize_transfers(data)
       data.map do |item|
+        tx_index = item['transaction_index']
+        tx_index = tx_index.to_i if tx_index
+        log_index = item['event_log_index']
+        log_index = log_index.to_i if log_index
+
         {
           token_id: (item['ethscription_transaction_hash'] || '').downcase,  # The ethscription being transferred
           tx_hash: (item['transaction_hash'] || '').downcase,                # The transfer transaction
           from: (item['from_address'] || '').downcase,
           to: (item['to_address'] || '').downcase,
-          block_number: item['block_number']
+          block_number: item['block_number'],
+          transaction_index: tx_index,
+          event_log_index: log_index
         }
       end
     end
