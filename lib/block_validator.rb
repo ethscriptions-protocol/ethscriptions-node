@@ -280,18 +280,18 @@ class BlockValidator
       @errors << "Storage content_sha mismatch for #{tx_hash}: stored=#{stored[:content_sha]}, expected=#{creation[:content_sha]}"
     end
 
-    # Verify mimetype - must match exactly
-    if stored[:mimetype] != creation[:mimetype]
+    # Verify mimetype - normalize to binary for comparison (Eth::Abi returns binary for non-ASCII)
+    if stored[:mimetype].b != creation[:mimetype].b
       @errors << "Storage mimetype mismatch for #{tx_hash}: stored=#{stored[:mimetype]}, expected=#{creation[:mimetype]}"
     end
 
-    # Verify media_type - always present in API, must match exactly
-    if stored[:media_type] != creation[:media_type]
+    # Verify media_type - normalize to binary for comparison
+    if stored[:media_type].b != creation[:media_type].b
       @errors << "Storage media_type mismatch for #{tx_hash}: stored=#{stored[:media_type]}, expected=#{creation[:media_type]}"
     end
 
-    # Verify mime_subtype - must match exactly
-    if stored[:mime_subtype] != creation[:mime_subtype]
+    # Verify mime_subtype - normalize to binary for comparison
+    if stored[:mime_subtype].b != creation[:mime_subtype].b
       @errors << "Storage mime_subtype mismatch for #{tx_hash}: stored=#{stored[:mime_subtype]}, expected=#{creation[:mime_subtype]}"
     end
 
