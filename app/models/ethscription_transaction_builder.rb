@@ -87,7 +87,7 @@ class EthscriptionTransactionBuilder
     owner_bin = address_to_bin(operation[:initial_owner])
 
     # Extract token params if this is a token operation
-    token_params = extract_token_params(operation[:content_uri])
+    token_params = TokenParamsExtractor.extract(operation[:content_uri])
 
     # Encode parameters with proper binary values
     params = [
@@ -180,52 +180,5 @@ class EthscriptionTransactionBuilder
     # Ensure 20 bytes (40 hex chars)
     clean_hex = clean_hex.rjust(40, '0')[-40..]
     [clean_hex].pack('H*')
-  end
-
-  # Extract token parameters from content URI if it's a token operation
-  def self.extract_token_params(content_uri)
-    # Default empty token params (with binary strings)
-    default_params = [''.b, ''.b, ''.b, 0, 0, 0]
-
-    return default_params unless content_uri
-
-    # Try to parse JSON from data URI
-    # Expected formats:
-    # Deploy: data:,{"p":"erc-20","op":"deploy","tick":"eths","max":"21000000","lim":"1000"}
-    # Mint: data:,{"p":"erc-20","op":"mint","tick":"eths","id":"1","amt":"1000"}
-
-    if content_uri.start_with?('data:,{')
-      begin
-        json_str = content_uri[6..-1] # Remove 'data:,'
-        data = JSON.parse(json_str)
-
-        op = (data['op'] || '').to_s.b
-        protocol = (data['p'] || '').to_s.b
-        tick = (data['tick'] || '').to_s.b
-
-        case data['op']
-        when 'deploy'
-          max = (data['max'] || 0).to_i
-          lim = (data['lim'] || 0).to_i
-          [op, protocol, tick, max, lim, 0]
-        when 'mint'
-          amt = (data['amt'] || 0).to_i
-          # For mint operations, we might store id in max field for reference
-          id = (data['id'] || 0).to_i
-          [op, protocol, tick, id, 0, amt]
-        else
-          # Unknown op but has protocol/tick
-          if protocol.present? || tick.present?
-            [op, protocol, tick, 0, 0, 0]
-          else
-            default_params
-          end
-        end
-      rescue JSON::ParserError
-        default_params
-      end
-    else
-      default_params
-    end
   end
 end
