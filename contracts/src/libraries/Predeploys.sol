@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.30;
 
 /// @title Predeploys
 /// @notice Defines all predeploy addresses for the L2 chain

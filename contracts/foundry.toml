@@ -2,7 +2,7 @@
 src = "src"
 out = "forge-artifacts"
 libs = ["dependencies"]
-solc = "0.8.24"
+solc = "0.8.30"
 optimizer = true
 optimizer_runs = 200
 # via_ir = true
@@ -27,3 +27,14 @@ forge-std = "1.10.0"
 "@openzeppelin-contracts" = "5.3.0"
 "@openzeppelin-contracts-upgradeable" = "5.3.0"
 "@eth-optimism-contracts-bedrock" = "0.17.3"
+
+[lint]
+exclude_lints = [
+  "unaliased-plain-import",
+  "pascal-case-struct",
+  "mixed-case-variable",
+  "mixed-case-function",
+  "screaming-snake-case-const",
+  "erc20-unchecked-transfer",
+  "asm-keccak256"
+]
