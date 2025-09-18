@@ -2,19 +2,28 @@ class BlockValidator
   attr_reader :errors, :stats
 
   def initialize
-    @errors = []
+    @errors = Concurrent::Array.new
     @stats = {}
-    @storage_checks_performed = 0
+    @storage_checks_performed = Concurrent::AtomicFixnum.new(0)
     @incomplete_actual = false
+
+    # Thread pool for storage verification
+    storage_threads = ENV.fetch('STORAGE_VERIFICATION_THREADS', '20').to_i
+    @storage_executor = Concurrent::ThreadPoolExecutor.new(
+      min_threads: 1,
+      max_threads: storage_threads,
+      max_queue: storage_threads * 3,
+      fallback_policy: :caller_runs
+    )
   end
 
-  def validate_l1_block(l1_block_number, l2_block_hashes)
+  def validate_l1_block(l1_block_number, l2_block_hashes, expected_override: nil)
     reset_validation_state
 
     Rails.logger.info "Validating L1 block #{l1_block_number} with #{l2_block_hashes.size} L2 blocks"
 
-    # Fetch reference data from API
-    expected = fetch_expected_data(l1_block_number)
+    # Use prefetched data if provided, otherwise fetch from API
+    expected = expected_override || fetch_expected_data(l1_block_number)
 
     # Get actual data from L2 events
     actual_events = aggregate_l2_events(l2_block_hashes)
@@ -41,7 +50,7 @@ class BlockValidator
         actual_creations: Array(actual_events[:creations]).size,
         expected_transfers: Array(expected[:transfers]).size,
         actual_transfers: Array(actual_events[:transfers]).size,
-        storage_checks: @storage_checks_performed,
+        storage_checks: @storage_checks_performed.value,
         errors_count: @errors.size,
         api_unavailable: expected[:api_unavailable] ? true : false,
         incomplete_actual: @incomplete_actual
@@ -54,8 +63,8 @@ class BlockValidator
   private
 
   def reset_validation_state
-    @errors = []
-    @storage_checks_performed = 0
+    @errors = Concurrent::Array.new
+    @storage_checks_performed = Concurrent::AtomicFixnum.new(0)
     @incomplete_actual = false
   end
 
@@ -80,6 +89,7 @@ class BlockValidator
   end
 
   def aggregate_l2_events(block_hashes)
+    ImportProfiler.start("aggregate_l2_events")
     all_creations = []
     all_transfers = []
 
@@ -90,7 +100,7 @@ class BlockValidator
           @errors << "No receipts returned for L2 block #{block_hash}"
           @incomplete_actual = true
           binding.irb if ENV['DEBUG'] == '1'
-          next
+          raise "No receipts returned for L2 block #{block_hash}"
         end
 
         data = EventDecoder.decode_block_receipts(receipts)
@@ -100,14 +110,16 @@ class BlockValidator
         @errors << "Failed to get receipts for block #{block_hash}: #{e.message}"
         @incomplete_actual = true
         binding.irb if ENV['DEBUG'] == '1'
-        next
+        raise "Failed to get receipts for block #{block_hash}: #{e.message}"
       end
     end
 
-    {
+    result = {
       creations: all_creations,
       transfers: all_transfers
     }
+    ImportProfiler.stop("aggregate_l2_events")
+    result
   end
 
   def compare_events(expected, actual, l1_block_num)
@@ -272,13 +284,22 @@ class BlockValidator
   end
 
   def verify_storage_state(expected_data, l1_block_num, block_tag)
-    # Verify each created ethscription exists in storage with correct data
-    Array(expected_data[:creations]).each do |creation|
-      verify_ethscription_storage(creation, l1_block_num, block_tag)
+    ImportProfiler.start("storage_verification")
+
+    # Parallel verification using thread pool
+    creation_promises = Array(expected_data[:creations]).map do |creation|
+      Concurrent::Promise.execute(executor: @storage_executor) do
+        verify_ethscription_storage(creation, l1_block_num, block_tag)
+      end
     end
+
+    # Wait for all creation verifications to complete
+    creation_promises.each(&:value!)
 
     # Verify ownership after transfers
     verify_transfer_ownership(Array(expected_data[:transfers]), block_tag)
+
+    ImportProfiler.stop("storage_verification")
   end
 
   def verify_ethscription_storage(creation, l1_block_num, block_tag)
@@ -290,11 +311,11 @@ class BlockValidator
     rescue => e
       binding.irb if ENV['DEBUG'] == '1'
       @errors << "Ethscription #{tx_hash} not found in contract storage: #{e.message}"
-      @storage_checks_performed += 1
+      @storage_checks_performed.increment
       return
     end
 
-    @storage_checks_performed += 1
+    @storage_checks_performed.increment
 
     if stored.nil?
       @errors << "Ethscription #{tx_hash} not found in contract storage"
@@ -389,7 +410,7 @@ class BlockValidator
       end
 
       actual_owner = StorageReader.get_owner(token_id, block_tag: block_tag)
-      @storage_checks_performed += 1
+      @storage_checks_performed.increment
 
       if actual_owner.nil?
         binding.irb if ENV['DEBUG'] == '1'

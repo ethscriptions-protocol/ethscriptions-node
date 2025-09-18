@@ -11,10 +11,11 @@ class EthRpcClient
   class ApiError < StandardError; end
   class ExecutionRevertedError < StandardError; end
   class MethodRequiredError < StandardError; end
-  attr_accessor :base_url
+  attr_accessor :base_url, :http
 
   def initialize(base_url = ENV['L1_RPC_URL'])
     self.base_url = base_url
+    @http = Net::HTTP::Persistent.new(name: "eth_rpc_#{base_url.hash}")
   end
   
   def self.l1
@@ -134,10 +135,15 @@ class EthRpcClient
         Rails.logger.info "Retrying #{method} (attempt #{try}, next delay: #{next_interval.round(2)}s) - #{exception.message}"
       }
     ) do
-      response = HTTParty.post(url, body: data.to_json, headers: headers)
+      uri = URI(url)
+      request = Net::HTTP::Post.new(uri)
+      request.body = data.to_json
+      headers.each { |key, value| request[key] = value }
+
+      response = @http.request(uri, request)
       
-      if response.code != 200
-        raise HttpError.new(response.code, response.message)
+      if response.code.to_i != 200
+        raise HttpError.new(response.code.to_i, response.message)
       end
 
       parsed_response = JSON.parse(response.body, max_nesting: false)
