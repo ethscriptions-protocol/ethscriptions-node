@@ -67,7 +67,7 @@ class EthTransaction < T::Struct
       next unless eth_tx.is_success?
 
       # Build deposits using the unified builder
-      deposits = EthscriptionTransaction.build_deposits(eth_tx, ethscriptions_block)
+      deposits = EthscriptionTransactionBuilder.build_deposits(eth_tx, ethscriptions_block)
       all_deposits.concat(deposits)
     end
 

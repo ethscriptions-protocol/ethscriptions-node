@@ -66,7 +66,7 @@ class EthscriptionsBlock < T::Struct
   end
   
   def attributes_tx
-    EthscriptionTransaction.l1_attributes_tx_from_blocks(self)
+    L1AttributesTransaction.from_ethscriptions_block(self)
   end
   
   def self.from_rpc_result(res)
