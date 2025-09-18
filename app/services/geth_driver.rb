@@ -273,7 +273,7 @@ module GethDriver
     receipts = EthRpcClient.l2.get_block_receipts(block_to_check)
     
     failed_system_txs = receipts.select do |receipt|
-      EthscriptionTransaction::SYSTEM_ADDRESS == Address20.from_hex(receipt['from']) &&
+      SysConfig::SYSTEM_ADDRESS == Address20.from_hex(receipt['from']) &&
       receipt['status'] != '0x1'
     end
 
