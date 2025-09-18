@@ -2,7 +2,7 @@
 src = "src"
 out = "forge-artifacts"
 libs = ["dependencies"]
-solc = "0.8.30"
+solc = "0.8.24"
 optimizer = true
 optimizer_runs = 200
 # via_ir = true

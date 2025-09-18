@@ -193,7 +193,7 @@ module GethDriver
       "make geth &&",
       "mkdir -p ./datadir &&",
       "rm -rf ./datadir/* &&",
-      "./build/bin/geth init --cache.preimages --state.scheme=hash --datadir ./datadir genesis/#{genesis_filename} &&",
+      "./build/bin/geth init --cache.preimages --state.scheme=hash --datadir ./datadir genesis-files/#{genesis_filename} &&",
       "./build/bin/geth --datadir ./datadir",
       "--http",
       "--http.api 'eth,net,web3,debug'",

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.24;
 
 import "./ERC721EthscriptionsUpgradeable.sol";
 import {SSTORE2} from "solady/utils/SSTORE2.sol";

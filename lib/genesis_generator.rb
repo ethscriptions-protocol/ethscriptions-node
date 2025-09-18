@@ -127,7 +127,7 @@ class GenesisGenerator
     geth_dir = ENV.fetch('LOCAL_GETH_DIR')
 
     # Write to file
-    output_file = File.join(geth_dir, 'genesis.json')
+    output_file = File.join(geth_dir, "genesis-files", "ethscriptions-#{l1_network_name}.json")
     File.write(output_file, JSON.pretty_generate(genesis))
     
     puts "✅ Genesis file written to: #{output_file}"
