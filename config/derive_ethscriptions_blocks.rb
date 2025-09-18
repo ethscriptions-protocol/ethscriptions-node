@@ -114,6 +114,19 @@ module Clockwork
   every(import_interval.seconds, 'import_ethscriptions_blocks') do
     importer = EthBlockImporter.new
 
+    # Handle Ctrl+C gracefully
+    Signal.trap('INT') do
+      puts "\n[#{Time.now}] Received INT signal, shutting down..."
+      importer.shutdown
+      exit 130
+    end
+
+    Signal.trap('TERM') do
+      puts "\n[#{Time.now}] Received TERM signal, shutting down..."
+      importer.shutdown
+      exit 143
+    end
+
     # Track statistics
     total_blocks_imported = 0
     total_ethscriptions = 0

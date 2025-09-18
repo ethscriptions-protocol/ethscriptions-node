@@ -22,12 +22,14 @@ module GethDriver
     finalized_block:
   )
     # Create filler blocks if necessary and update head_block
+    ImportProfiler.start("create_filler_blocks")
     filler_blocks = create_filler_blocks(
       head_block: head_block,
       new_ethscriptions_block: new_ethscriptions_block,
       safe_block: safe_block,
       finalized_block: finalized_block
     )
+    ImportProfiler.stop("create_filler_blocks")
     
     head_block = filler_blocks.last || head_block
     
@@ -74,7 +76,10 @@ module GethDriver
     payload_attributes = ByteString.deep_hexify(payload_attributes)
     fork_choice_state = ByteString.deep_hexify(fork_choice_state)
     
+    ImportProfiler.start("engine_forkchoiceUpdated_1")
     fork_choice_response = client.call("engine_forkchoiceUpdatedV#{version}", [fork_choice_state, payload_attributes])
+    ImportProfiler.stop("engine_forkchoiceUpdated_1")
+
     if fork_choice_response['error']
       raise "Fork choice update failed: #{fork_choice_response['error']}"
     end
@@ -84,7 +89,10 @@ module GethDriver
       raise "Fork choice update did not return a payload ID"
     end
 
+    ImportProfiler.start("engine_getPayload")
     get_payload_response = client.call("engine_getPayloadV#{version}", [payload_id])
+    ImportProfiler.stop("engine_getPayload")
+
     if get_payload_response['error']
       raise "Get payload failed: #{get_payload_response['error']}"
     end
@@ -104,8 +112,10 @@ module GethDriver
     
     new_payload_request = ByteString.deep_hexify(new_payload_request)
     
+    ImportProfiler.start("engine_newPayload")
     new_payload_response = client.call("engine_newPayloadV#{version}", new_payload_request)
-    
+    ImportProfiler.stop("engine_newPayload")
+
     status = new_payload_response['status']
     unless status == 'VALID'
       raise "New payload was not valid: #{status}"
@@ -126,7 +136,9 @@ module GethDriver
     
     fork_choice_state = ByteString.deep_hexify(fork_choice_state)
     
+    ImportProfiler.start("engine_forkchoiceUpdated_2")
     fork_choice_response = client.call("engine_forkchoiceUpdatedV#{version}", [fork_choice_state, nil])
+    ImportProfiler.stop("engine_forkchoiceUpdated_2")
 
     status = fork_choice_response['payloadStatus']['status']
     unless status == 'VALID'

@@ -7,14 +7,13 @@ class EthBlockImporter
   # Raised when a re-org is detected (parent hash mismatch)
   class ReorgDetectedError < StandardError; end
   
-  attr_accessor :l1_rpc_results, :ethscriptions_block_cache, :ethereum_client, :eth_block_cache, :geth_driver
-  
+  attr_accessor :ethscriptions_block_cache, :ethereum_client, :eth_block_cache, :geth_driver
+
   def initialize
-    @l1_rpc_results = {}
     @ethscriptions_block_cache = {}
     @eth_block_cache = {}
 
-    @ethereum_client ||= EthRpcClient.new(ENV.fetch('L1_RPC_URL'))
+    @ethereum_client ||= EthRpcClient.l1
 
     @geth_driver = GethDriver
 
@@ -24,7 +23,7 @@ class EthBlockImporter
 
     # Create a shared thread pool for validation
     if @validation_enabled
-      @validation_threads = ENV.fetch('VALIDATION_THREADS', '50').to_i
+      @validation_threads = ENV.fetch('VALIDATION_THREADS', '10').to_i
       @validation_executor = Concurrent::ThreadPoolExecutor.new(
         min_threads: 1,
         max_threads: @validation_threads,
@@ -34,12 +33,29 @@ class EthBlockImporter
       logger.info "Created validation thread pool with #{@validation_threads} threads"
     end
 
+    # L1 prefetcher for blocks/receipts/API data
+    @prefetcher = L1RpcPrefetcher.new(
+      ethereum_client: @ethereum_client,
+      ahead: ENV.fetch('L1_PREFETCH_FORWARD', Rails.env.test? ? 5 : 20).to_i,
+      threads: ENV.fetch('L1_PREFETCH_THREADS', Rails.env.test? ? 2 : 2).to_i
+    )
+    @prefetched_api_data = {}
+
     logger.info "EthBlockImporter initialized - Validation: #{@validation_enabled ? 'ENABLED' : 'disabled'}"
 
     MemeryExtensions.clear_all_caches!
 
     set_eth_block_starting_points
     populate_ethscriptions_block_cache
+
+    unless Rails.env.test?
+      max_block = current_max_eth_block_number
+      if max_block && max_block > 0
+        ImportProfiler.start('prefetch_warmup')
+        @prefetcher.ensure_prefetched(max_block + 1)
+        ImportProfiler.stop('prefetch_warmup')
+      end
+    end
   end
   
   def current_max_ethscriptions_block_number
@@ -60,10 +76,14 @@ class EthBlockImporter
     
     while epochs_found < 64 && current_block_number >= 0
       hex_block_number = "0x#{current_block_number.to_s(16)}"
+      ImportProfiler.start("l2_block_fetch")
       block_data = geth_driver.client.call("eth_getBlockByNumber", [hex_block_number, false])
+      ImportProfiler.stop("l2_block_fetch")
       current_block = EthscriptionsBlock.from_rpc_result(block_data)
-      
+
+      ImportProfiler.start("l1_attributes_fetch")
       l1_attributes = GethDriver.client.get_l1_attributes(current_block.number)
+      ImportProfiler.stop("l1_attributes_fetch")
       current_block.assign_l1_attributes(l1_attributes)
       
       ethscriptions_block_cache[current_block.number] = current_block
@@ -183,48 +203,13 @@ class EthBlockImporter
           raise BlockNotReadyToImportError.new("Block not ready")
         end
         
-        populate_l1_rpc_results(block_numbers)
-        
         import_blocks(block_numbers)
       rescue BlockNotReadyToImportError => e
         puts "#{e.message}. Stopping import."
+        ImportProfiler.report if ImportProfiler.enabled?
         break
       end
     end
-  end
-  
-  def populate_l1_rpc_results(block_numbers)
-    next_start_block = block_numbers.last + 1
-    next_block_numbers = (next_start_block...(next_start_block + import_batch_size)).to_a
-    
-    blocks_to_import = block_numbers
-    
-    if blocks_behind > 1
-      blocks_to_import += next_block_numbers.select do |num|
-        num <= current_block_number
-      end
-    end
-    
-    blocks_to_import -= l1_rpc_results.keys
-    
-    l1_rpc_results.reverse_merge!(get_blocks_promises(blocks_to_import))
-  end
-  
-  def get_blocks_promises(block_numbers)
-    block_numbers.map do |block_number|
-      block_promise = Concurrent::Promise.execute do
-        ethereum_client.get_block(block_number, true)
-      end
-      
-      receipt_promise = Concurrent::Promise.execute do
-        ethereum_client.get_transaction_receipts(block_number)
-      end
-      
-      [block_number, {
-        block: block_promise,
-        receipts: receipt_promise
-      }.with_indifferent_access]
-    end.to_h
   end
   
   def fetch_block_from_cache(block_number)
@@ -245,6 +230,12 @@ class EthBlockImporter
     # Remove old entries from ethscriptions_block_cache based on Ethereum block number
     ethscriptions_block_cache.delete_if do |_, ethscriptions_block|
       ethscriptions_block.eth_block_number < oldest_eth_block_to_keep
+    end
+
+    # Clean up prefetcher and API data caches
+    if oldest_eth_block_to_keep
+      @prefetcher.clear_older_than(oldest_eth_block_to_keep)
+      @prefetched_api_data.delete_if { |block_num, _| block_num < oldest_eth_block_to_keep }
     end
   end
   
@@ -289,48 +280,50 @@ class EthBlockImporter
   end
   
   def import_blocks(block_numbers)
+    ImportProfiler.start("import_blocks_total")
+
+    # Initialize seen creates for this batch (needed by prefetcher threads)
+    EthscriptionTransaction.reset_seen_creates!
+
     logger.info "Block Importer: importing blocks #{block_numbers.join(', ')}"
     start = Time.current
-    
-    block_responses = l1_rpc_results.select do |block_number, _|
-      block_numbers.include?(block_number)
-    end.to_h.transform_values do |hsh|
-      hsh.transform_values(&:value!)
-    end
-  
-    l1_rpc_results.reject! { |block_number, _| block_responses.key?(block_number) }
-    
+
+    ImportProfiler.start("prefetch_ensure")
+    @prefetcher.ensure_prefetched(block_numbers.first)
+    ImportProfiler.stop("prefetch_ensure")
+
     eth_blocks = []
     ethscriptions_blocks = []
     res = []
     
-    block_numbers.each.with_index do |block_number, index|
-      block_response = block_responses[block_number]
-      
-      block_result = block_response['block']
-      receipt_result = block_response['receipts']
-      
+    block_numbers.each do |block_number|
+      ImportProfiler.start("prefetch_fetch")
+      response = @prefetcher.fetch(block_number)
+      ImportProfiler.stop("prefetch_fetch")
+
+      eth_block = response[:eth_block]
+      ethscriptions_block = response[:ethscriptions_block]
+      ethscription_txs = response[:ethscription_txs]
+
+      ethscription_txs.each { |tx| tx.ethscriptions_block = ethscriptions_block }
+
+      if @validation_enabled && response[:api_data]
+        @prefetched_api_data[block_number] = response[:api_data]
+      end
+
       parent_eth_block = eth_block_cache[block_number - 1]
-      
-      if parent_eth_block && parent_eth_block.block_hash != Hash32.from_hex(block_result['parentHash'])
+
+      if parent_eth_block && parent_eth_block.block_hash != eth_block.parent_hash
         logger.info "Reorg detected at block #{block_number}"
         raise ReorgDetectedError
       end
-      
-      eth_block = EthBlock.from_rpc_result(block_result)
 
-      ethscriptions_block = EthscriptionsBlock.from_eth_block(eth_block)
-      
-      ethscription_txs = EthTransaction.ethscription_txs_from_rpc_results(block_result, receipt_result, ethscriptions_block)
-      
-      ethscription_txs.each do |ethscription_tx|
-        ethscription_tx.ethscriptions_block = ethscriptions_block
-      end
-      
+      ImportProfiler.start("propose_ethscriptions_block")
       imported_ethscriptions_blocks = propose_ethscriptions_block(
         ethscriptions_block: ethscriptions_block,
         ethscription_txs: ethscription_txs
       )
+      ImportProfiler.stop("propose_ethscriptions_block")
 
       logger.debug "Block #{block_number}: Found #{ethscription_txs.length} ethscription txs, created #{imported_ethscriptions_blocks.length} L2 blocks"
       
@@ -368,13 +361,22 @@ class EthBlockImporter
     logger.info "Total gas used: #{total_gas_millions} million (avg: #{average_gas_per_block_millions} million / block)"
     logger.info "Gas per second: #{gas_per_second_millions} million / s"
 
+    if block_numbers.length >= 10
+      stats = @prefetcher.stats
+      logger.info "Prefetcher stats: promises=#{stats[:promises_total]} " \
+                  "(fulfilled=#{stats[:promises_fulfilled]}, pending=#{stats[:promises_pending]}, " \
+                  "threads_active=#{stats[:threads_active]}, queued=#{stats[:threads_queued]})"
+    end
+
     # Validate imported blocks if enabled
     if @validation_enabled
       if ethscriptions_blocks.any?
+        ImportProfiler.start("validation_wall_clock")
         start_validation = Time.current
         logger.info "Starting parallel validation for #{block_numbers.length} blocks with #{ethscriptions_blocks.length} L2 blocks"
         validate_imported_blocks(block_numbers, ethscriptions_blocks)
         validation_time = Time.current - start_validation
+        ImportProfiler.stop("validation_wall_clock")
         logger.info "Validation completed in #{validation_time.round(2)}s (#{(block_numbers.length / validation_time).round(2)} blocks/s)"
       else
         logger.info "Validation enabled but no ethscriptions blocks to validate"
@@ -383,14 +385,19 @@ class EthBlockImporter
       logger.warn "Validation requested but not enabled in importer initialization"
     end
 
+    ImportProfiler.stop("import_blocks_total")
+
+    # Generate profiling report after each batch
+    if ImportProfiler.enabled?
+      ImportProfiler.report
+      ImportProfiler.reset
+    end
+
     [ethscriptions_blocks, eth_blocks]
   end
   
   def import_next_block
     block_number = next_block_to_import
-    
-    populate_l1_rpc_results([block_number])
-    
     import_blocks([block_number])
   end
   
@@ -450,7 +457,8 @@ class EthBlockImporter
         else
           begin
             validator = BlockValidator.new
-            result = validator.validate_l1_block(l1_block_num, l2_hashes)
+            api_data = @prefetched_api_data.delete(l1_block_num)
+            result = validator.validate_l1_block(l1_block_num, l2_hashes, expected_override: api_data)
 
             if result.stats[:api_unavailable]
               {
@@ -544,6 +552,8 @@ class EthBlockImporter
   end
 
   def shutdown
+    @prefetcher&.shutdown
+
     if @validation_executor
       logger.info "Shutting down validation thread pool..."
       @validation_executor.shutdown
