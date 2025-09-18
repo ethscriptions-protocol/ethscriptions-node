@@ -1,5 +1,5 @@
 class EthscriptionsApiClient
-  BASE_URL = ENV.fetch('ETHSCRIPTIONS_API_BASE_URL', 'http://127.0.0.1:3000')
+  BASE_URL = ENV['ETHSCRIPTIONS_API_BASE_URL'].to_s
 
   class << self
     def fetch_block_data(block_number)

@@ -15,7 +15,14 @@ class EthRpcClient
 
   def initialize(base_url = ENV['L1_RPC_URL'])
     self.base_url = base_url
-    @http = Net::HTTP::Persistent.new(name: "eth_rpc_#{base_url.hash}")
+    @uri = URI(base_url)
+    @http = Net::HTTP::Persistent.new(
+      name: "eth_rpc_#{@uri.host}:#{@uri.port}",
+      pool_size: 100  # Increase pool size from default 64
+    )
+    @http.open_timeout = 10   # 10 seconds to establish connection
+    @http.read_timeout = 30   # 30 seconds for slow eth_call operations
+    @http.idle_timeout = 30   # Keep connections alive for 30 seconds
   end
   
   def self.l1
