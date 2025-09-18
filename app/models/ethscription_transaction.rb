@@ -42,14 +42,10 @@ class EthscriptionTransaction < T::Struct
       seen_creates.add(tx_hash)
     end
 
-    # Thread-safe lazy initialization
+    # Access seen creates set - requires reset_seen_creates! to be called first
     def seen_creates
-      @seen_creates_mutex ||= Mutex.new
-      return @seen_creates if @seen_creates
-
-      @seen_creates_mutex.synchronize do
-        @seen_creates ||= Concurrent::Set.new
-      end
+      raise "Must call reset_seen_creates! first" unless @seen_creates
+      @seen_creates
     end
   end
 
@@ -178,9 +174,7 @@ class EthscriptionTransaction < T::Struct
 
   # Dynamic input method - builds calldata on demand
   def input
-    return @cached_input if defined?(@cached_input)
-
-    @cached_input = case ethscription_operation
+    case ethscription_operation
     when 'create'
       ByteString.from_bin(build_create_calldata)
     when 'transfer'
