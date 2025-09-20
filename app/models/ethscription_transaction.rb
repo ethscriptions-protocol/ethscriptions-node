@@ -18,11 +18,14 @@ class EthscriptionTransaction < T::Struct
 
   # Transfer operation fields
   prop :ethscription_id, T.nilable(String)
+  prop :transfer_ids, T.nilable(T::Array[String])
   prop :transfer_from_address, T.nilable(String)
   prop :transfer_to_address, T.nilable(String)
   prop :enforced_previous_owner, T.nilable(String)
-  prop :input_index, T.nilable(Integer)
-  prop :log_index, T.nilable(Integer)
+
+  # Unified source tracking
+  prop :source_type, T.nilable(Symbol)  # :input or :event
+  prop :source_index, T.nilable(Integer)
 
   # Debug info (can be removed if not needed)
   prop :ethscription_operation, T.nilable(String) # 'create', 'transfer', 'transfer_with_previous_owner'
@@ -33,40 +36,9 @@ class EthscriptionTransaction < T::Struct
   GAS_LIMIT = 1_000_000_000
   TO_ADDRESS = SysConfig::ETHSCRIPTIONS_ADDRESS
   
-  class << self
-    def reset_seen_creates!
-      @seen_creates = Concurrent::Set.new
-    end
-
-    def add_seen_create(tx_hash)
-      seen_creates.add(tx_hash)
-    end
-
-    # Access seen creates set - requires reset_seen_creates! to be called first
-    def seen_creates
-      raise "Must call reset_seen_creates! first" unless @seen_creates
-      @seen_creates
-    end
-  end
-
-  # Dynamic source hash based on operation type
+  # Dynamic source hash based on source type and index
   def source_hash
-    case ethscription_operation
-    when 'create'
-      # Creates are one-to-one with transactions
-      eth_transaction.transaction_hash
-    when 'transfer', 'transfer_with_previous_owner'
-      # Transfers need unique hash within transaction
-      if input_index
-        compute_transfer_source_hash(:input, input_index)
-      elsif log_index
-        compute_transfer_source_hash(:event, log_index)
-      else
-        raise "Transfer must have either input_index or log_index"
-      end
-    else
-      raise "Unknown ethscription operation: #{ethscription_operation}"
-    end
+    compute_source_hash(source_type, source_index)
   end
 
 
@@ -75,7 +47,9 @@ class EthscriptionTransaction < T::Struct
     eth_transaction:,
     creator:,
     initial_owner:,
-    content_uri:
+    content_uri:,
+    source_type:,
+    source_index:
   )
     new(
       from_address: Address20.from_hex(creator.is_a?(String) ? creator : creator.to_hex),
@@ -83,6 +57,8 @@ class EthscriptionTransaction < T::Struct
       creator: creator,
       initial_owner: initial_owner,
       content_uri: content_uri,
+      source_type: source_type&.to_sym,
+      source_index: source_index,
       ethscription_operation: 'create'
     )
   end
@@ -94,8 +70,8 @@ class EthscriptionTransaction < T::Struct
     to_address:,
     ethscription_id:,
     enforced_previous_owner: nil,
-    input_index: nil,
-    log_index: nil
+    source_type:,
+    source_index:
   )
     operation_type = enforced_previous_owner ? 'transfer_with_previous_owner' : 'transfer'
 
@@ -106,54 +82,55 @@ class EthscriptionTransaction < T::Struct
       transfer_from_address: from_address,
       transfer_to_address: to_address,
       enforced_previous_owner: enforced_previous_owner,
-      input_index: input_index,
-      log_index: log_index,
+      source_type: source_type&.to_sym,
+      source_index: source_index,
       ethscription_operation: operation_type
     )
   end
 
-  # Instance method to compute transfer source hash
-  def compute_transfer_source_hash(operation_type, index)
-    tag = (operation_type == :input) ? 0 : 1
+  # Factory method for transferMultipleEthscriptions (inputs only)
+  def self.transfer_multiple_ethscriptions(
+    eth_transaction:,
+    from_address:,
+    to_address:,
+    ethscription_ids:,
+    source_type: :input,
+    source_index: 0
+  )
+    new(
+      from_address: Address20.from_hex(from_address.is_a?(String) ? from_address : from_address.to_hex),
+      eth_transaction: eth_transaction,
+      transfer_ids: ethscription_ids,
+      transfer_from_address: from_address,
+      transfer_to_address: to_address,
+      source_type: source_type&.to_sym,
+      source_index: source_index,
+      ethscription_operation: 'transfer'
+    )
+  end
+
+  # Unified source hash computation following Optimism pattern
+  def compute_source_hash(operation_source, index)
+    raise "Operation must have source metadata" if operation_source.nil? || index.nil?
+
+    source_tag = operation_source.to_s  # "input" or "event"
+    source_tag_hash = Eth::Util.keccak256(source_tag.bytes.pack('C*'))  # Hash for constant width
+
+    # Get function selector from input for operation type safety
+    function_selector = input.to_bin[0...4]
+
     payload = ByteString.from_bin(
-      eth_transaction.transaction_hash.to_bin +
-      Eth::Util.zpad_int(tag, 32) +
-      Eth::Util.zpad_int(index, 32)
+      eth_transaction.block_hash.to_bin +
+      source_tag_hash +                    # 32 bytes (hashed source tag)
+      function_selector +                   # 4 bytes (function selector)
+      Eth::Util.zpad_int(index, 32)       # 32 bytes (index)
     )
+
     bin_val = Eth::Util.keccak256(
-      Eth::Util.zpad_int(2, 32) + Eth::Util.keccak256(payload.to_bin)
+      Eth::Util.zpad_int(0, 32) + Eth::Util.keccak256(payload.to_bin)  # Domain 0 like Optimism
     )
+
     Hash32.from_bin(bin_val)
-  end
-
-  # Check if this is a valid, unseen ethscription
-  def valid_and_unseen?
-    valid_ethscription? && !already_seen?
-  end
-
-  # Mark this transaction as seen (for create deduplication)
-  def mark_as_seen!
-    if ethscription_operation == 'create'
-      self.class.add_seen_create(source_hash)
-    end
-  end
-
-  # Check if we've already seen this create transaction
-  def already_seen?
-    return false unless ethscription_operation == 'create'
-    self.class.seen_creates.include?(source_hash)
-  end
-
-  # Check if this is a valid ethscription
-  def valid_ethscription?
-    case ethscription_operation
-    when 'create'
-      valid_create?
-    when 'transfer', 'transfer_with_previous_owner'
-      valid_transfer?
-    else
-      raise "Unknown ethscription operation: #{ethscription_operation}"
-    end
   end
 
   def valid_create?
@@ -165,7 +142,21 @@ class EthscriptionTransaction < T::Struct
 
   def valid_transfer?
     # Basic field validation - if we extracted the data properly, ABI encoding should work
-    ethscription_id.present? &&
+    case ethscription_operation
+    when 'transfer'
+      if transfer_ids
+        # Multiple transfer (input-based)
+        transfer_ids.is_a?(Array) && transfer_ids.any?
+      else
+        # Single transfer (event-based)
+        ethscription_id.present?
+      end
+    when 'transfer_with_previous_owner'
+      # Always single transfer (event-based only)
+      ethscription_id.present?
+    else
+      false
+    end &&
     transfer_from_address.present? &&
     transfer_to_address.present?
   end
@@ -178,7 +169,11 @@ class EthscriptionTransaction < T::Struct
     when 'create'
       ByteString.from_bin(build_create_calldata)
     when 'transfer'
-      ByteString.from_bin(build_transfer_calldata)
+      if transfer_ids && transfer_ids.any?
+        ByteString.from_bin(build_transfer_multiple_calldata)
+      else
+        ByteString.from_bin(build_transfer_calldata)
+      end
     when 'transfer_with_previous_owner'
       ByteString.from_bin(build_transfer_with_previous_owner_calldata)
     else
@@ -279,6 +274,18 @@ class EthscriptionTransaction < T::Struct
     encoded = Eth::Abi.encode(['address', 'bytes32', 'address'], [to_bin, id_bin, prev_bin])
 
     # Ensure binary encoding
+    (function_sig + encoded).b
+  end
+
+  def build_transfer_multiple_calldata
+    # Get function selector as binary
+    function_sig = Eth::Util.keccak256('transferMultipleEthscriptions(bytes32[],address)')[0...4].b
+
+    ids_bin = (transfer_ids || []).map { |id| hex_to_bin(id) }
+    to_bin = address_to_bin(transfer_to_address)
+
+    encoded = Eth::Abi.encode(['bytes32[]', 'address'], [ids_bin, to_bin])
+
     (function_sig + encoded).b
   end
 

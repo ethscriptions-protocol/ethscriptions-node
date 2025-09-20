@@ -282,9 +282,6 @@ class EthBlockImporter
   def import_blocks(block_numbers)
     ImportProfiler.start("import_blocks_total")
 
-    # Initialize seen creates for this batch (needed by prefetcher threads)
-    EthscriptionTransaction.reset_seen_creates!
-
     logger.info "Block Importer: importing blocks #{block_numbers.join(', ')}"
     start = Time.current
 
