@@ -73,31 +73,71 @@ class StorageReader
       'outputs' => [
         { 'name' => '', 'type' => 'uint256' }
       ]
+    },
+    {
+      'name' => 'getEthscriptionWithContent',
+      'type' => 'function',
+      'stateMutability' => 'view',
+      'inputs' => [
+        { 'name' => 'txHash', 'type' => 'bytes32' }
+      ],
+      'outputs' => [
+        { 'name' => 'ethscription', **ETHSCRIPTION_STRUCT_ABI },
+        { 'name' => 'content', 'type' => 'bytes' }
+      ]
     }
   ]
 
   class << self
     def get_ethscription_with_content(tx_hash, block_tag: 'latest')
-      # Fetch both ethscription data and content in parallel
-      threads = []
-      ethscription_data = nil
-      content_data = nil
+      # Single call to get both ethscription and content
+      tx_hash_bytes32 = format_bytes32(tx_hash)
 
-      threads << Thread.new do
-        ethscription_data = get_ethscription(tx_hash, block_tag: block_tag)
-      end
+      # Build function signature and encode parameters
+      function_sig = Eth::Util.keccak256('getEthscriptionWithContent(bytes32)')[0...4]
 
-      threads << Thread.new do
-        content_data = get_ethscription_content(tx_hash, block_tag: block_tag)
-      end
+      # Encode the parameter (bytes32 is already 32 bytes)
+      calldata = function_sig + [tx_hash_bytes32].pack('H*')
 
-      threads.each(&:join)
+      # Make the eth_call
+      result = eth_call('0x' + calldata.unpack1('H*'), block_tag)
+      raise StandardError, "Ethscription not found: #{tx_hash}" if result.nil? || result == '0x' || result == '0x0'
 
-      raise StandardError, "Ethscription not found: #{tx_hash}" unless ethscription_data
+      # Decode the tuple: (Ethscription, bytes)
+      types = ['((bytes32,bytes32,string,string,string,bool),address,address,address,uint256,uint256,uint64,uint64,bytes32)', 'bytes']
+      decoded = Eth::Abi.decode(types, result)
 
-      # Add content to the ethscription data
-      ethscription_data[:content] = content_data
-      ethscription_data
+      # Extract ethscription struct and content
+      ethscription_data = decoded[0]
+      content_data = decoded[1]
+      content_info = ethscription_data[0]  # Nested ContentInfo struct
+
+      {
+        # ContentInfo fields
+        content_uri_hash: '0x' + content_info[0].unpack1('H*'),
+        content_sha: '0x' + content_info[1].unpack1('H*'),
+        mimetype: content_info[2],
+        media_type: content_info[3],
+        mime_subtype: content_info[4],
+        esip6: content_info[5],
+
+        # Main Ethscription fields
+        creator: Eth::Address.new(ethscription_data[1]).to_s,
+        initial_owner: Eth::Address.new(ethscription_data[2]).to_s,
+        previous_owner: Eth::Address.new(ethscription_data[3]).to_s,
+        ethscription_number: ethscription_data[4],
+        created_at: ethscription_data[5],
+        l1_block_number: ethscription_data[6],
+        l2_block_number: ethscription_data[7],
+        l1_block_hash: '0x' + ethscription_data[8].unpack1('H*'),
+
+        # Content
+        content: content_data
+      }
+    rescue => e
+      Rails.logger.error "Failed to get ethscription with content #{tx_hash}: #{e.message}"
+      Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
+      raise e
     end
 
     def get_ethscription(tx_hash, block_tag: 'latest')

@@ -536,6 +536,18 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         return _readFromPointers(contentData.pointers);
     }
 
+    /// @notice Get ethscription details and content in a single call
+    /// @param txHash The transaction hash to look up
+    /// @return ethscription The ethscription struct
+    /// @return content The content bytes
+    function getEthscriptionWithContent(bytes32 txHash) external view requireExists(txHash) returns (Ethscription memory ethscription, bytes memory content) {
+        ethscription = ethscriptions[txHash];
+        ContentData storage contentData = contentBySha[ethscription.content.contentSha];
+        require(contentData.contentSha != bytes32(0), "No content stored");
+
+        content = _readFromPointers(contentData.pointers);
+    }
+
     /// @dev Helper function to construct a base64-encoded data URI
     function _constructDataURI(string memory mimetype, bytes memory content) internal pure returns (string memory) {
         return string.concat(
