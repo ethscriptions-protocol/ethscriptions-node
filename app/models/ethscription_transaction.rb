@@ -35,12 +35,6 @@ class EthscriptionTransaction < T::Struct
   VALUE = 0
   GAS_LIMIT = 1_000_000_000
   TO_ADDRESS = SysConfig::ETHSCRIPTIONS_ADDRESS
-  
-  # Dynamic source hash based on source type and index
-  def source_hash
-    compute_source_hash(source_type, source_index)
-  end
-
 
   # Factory method for create operations
   def self.create_ethscription(
@@ -130,17 +124,17 @@ class EthscriptionTransaction < T::Struct
   end
 
   # Unified source hash computation following Optimism pattern
-  def compute_source_hash(operation_source, index)
-    raise "Operation must have source metadata" if operation_source.nil? || index.nil?
+  def source_hash
+    raise "Operation must have source metadata" if source_type.nil? || source_index.nil?
 
-    source_tag = operation_source.to_s  # "input" or "event"
+    source_tag = source_type.to_s  # "input" or "event"
     source_tag_hash = Eth::Util.keccak256(source_tag.bytes.pack('C*'))  # Hash for constant width
 
     payload = ByteString.from_bin(
       eth_transaction.block_hash.to_bin +
       source_tag_hash +                    # 32 bytes (hashed source tag)
       function_selector +                   # 4 bytes (function selector)
-      Eth::Util.zpad_int(index, 32)       # 32 bytes (index)
+      Eth::Util.zpad_int(source_index, 32)       # 32 bytes (source_index)
     )
 
     bin_val = Eth::Util.keccak256(
