@@ -43,13 +43,12 @@ class EthscriptionTransactionBuilder
         eth_transaction: @eth_tx,
         creator: normalize_address(@eth_tx.from_address),
         initial_owner: normalize_address(@eth_tx.to_address),
-        content_uri: content
+        content_uri: content,
+        source_type: :input,
+        source_index: @eth_tx.transaction_index
       )
 
-      if transaction.valid_and_unseen?
-        transaction.mark_as_seen!
-        @transactions << transaction
-      end
+      @transactions << transaction if transaction.valid_create?
     end
 
     # Also check for create events (ESIP-3)
@@ -75,13 +74,12 @@ class EthscriptionTransactionBuilder
           eth_transaction: @eth_tx,
           creator: normalize_address(log['address']),
           initial_owner: normalize_address(initial_owner),
-          content_uri: content_uri
+          content_uri: content_uri,
+          source_type: :event,
+          source_index: log['logIndex'].to_i(16)
         )
 
-        if transaction.valid_and_unseen?
-          transaction.mark_as_seen!
-          @transactions << transaction
-        end
+        @transactions << transaction if transaction.valid_create?
       rescue Eth::Abi::DecodingError => e
         Rails.logger.error "Failed to decode create event: #{e.message}"
         next
@@ -108,20 +106,20 @@ class EthscriptionTransactionBuilder
 
     return unless valid_length
 
-    # Parse each 32-byte hash
-    input_hex.scan(/.{64}/).each_with_index do |hash_hex, index|
-      ethscription_id = normalize_hash("0x#{hash_hex}")
+    # Parse all 32-byte hashes for a single multi-transfer call
+    ids = input_hex.scan(/.{64}/).map { |hash_hex| normalize_hash("0x#{hash_hex}") }
+    return if ids.empty?
 
-      transaction = EthscriptionTransaction.transfer_ethscription(
-        eth_transaction: @eth_tx,
-        from_address: normalize_address(@eth_tx.from_address),
-        to_address: normalize_address(@eth_tx.to_address),
-        ethscription_id: ethscription_id,
-        input_index: index
-      )
+    transaction = EthscriptionTransaction.transfer_multiple_ethscriptions(
+      eth_transaction: @eth_tx,
+      from_address: normalize_address(@eth_tx.from_address),
+      to_address: normalize_address(@eth_tx.to_address),
+      ethscription_ids: ids,
+      source_type: :input,
+      source_index: @eth_tx.transaction_index
+    )
 
-      @transactions << transaction
-    end
+    @transactions << transaction
   end
 
   def process_event_transfers
@@ -157,7 +155,8 @@ class EthscriptionTransactionBuilder
       from_address: normalize_address(log['address']),
       to_address: normalize_address(event_to),
       ethscription_id: ethscription_id,
-      log_index: log['logIndex'].to_i(16)
+      source_type: :event,
+      source_index: log['logIndex'].to_i(16)
     )
 
     @transactions << transaction
@@ -182,7 +181,8 @@ class EthscriptionTransactionBuilder
       to_address: normalize_address(event_to),
       ethscription_id: ethscription_id,
       enforced_previous_owner: normalize_address(event_previous_owner),
-      log_index: log['logIndex'].to_i(16)
+      source_type: :event,
+      source_index: log['logIndex'].to_i(16)
     )
 
     @transactions << transaction
