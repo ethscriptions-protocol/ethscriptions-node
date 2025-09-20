@@ -94,8 +94,8 @@ class EthscriptionTransaction < T::Struct
     from_address:,
     to_address:,
     ethscription_ids:,
-    source_type: :input,
-    source_index: 0
+    source_type:,
+    source_index:
   )
     new(
       from_address: Address20.from_hex(from_address.is_a?(String) ? from_address : from_address.to_hex),
@@ -109,15 +109,32 @@ class EthscriptionTransaction < T::Struct
     )
   end
 
+  # Get function selector for this operation
+  def function_selector
+    function_signature = case ethscription_operation
+    when 'create'
+      'createEthscription((bytes32,bytes32,address,bytes,string,string,string,bool,(string,string,string,uint256,uint256,uint256)))'
+    when 'transfer'
+      if transfer_ids && transfer_ids.any?
+        'transferMultipleEthscriptions(bytes32[],address)'
+      else
+        'transferEthscription(address,bytes32)'
+      end
+    when 'transfer_with_previous_owner'
+      'transferEthscriptionForPreviousOwner(address,bytes32,address)'
+    else
+      raise "Unknown ethscription operation: #{ethscription_operation}"
+    end
+
+    Eth::Util.keccak256(function_signature)[0...4]
+  end
+
   # Unified source hash computation following Optimism pattern
   def compute_source_hash(operation_source, index)
     raise "Operation must have source metadata" if operation_source.nil? || index.nil?
 
     source_tag = operation_source.to_s  # "input" or "event"
     source_tag_hash = Eth::Util.keccak256(source_tag.bytes.pack('C*'))  # Hash for constant width
-
-    # Get function selector from input for operation type safety
-    function_selector = input.to_bin[0...4]
 
     payload = ByteString.from_bin(
       eth_transaction.block_hash.to_bin +
@@ -202,9 +219,7 @@ class EthscriptionTransaction < T::Struct
   # Build calldata for create operations (same for both input and event-based)
   def build_create_calldata
     # Get function selector as binary
-    function_sig = Eth::Util.keccak256(
-      'createEthscription((bytes32,bytes32,address,bytes,string,string,string,bool,(string,string,string,uint256,uint256,uint256)))'
-    )[0...4].b
+    function_sig = function_selector.b
 
     # Both input and event-based creates use data URI format
     # Events are "equivalent of an EOA hex-encoding contentURI and putting it in the calldata"
@@ -248,7 +263,7 @@ class EthscriptionTransaction < T::Struct
 
   def build_transfer_calldata
     # Get function selector as binary
-    function_sig = Eth::Util.keccak256('transferEthscription(address,bytes32)')[0...4].b
+    function_sig = function_selector.b
 
     # Convert to binary for ABI
     to_bin = address_to_bin(transfer_to_address)
@@ -262,9 +277,7 @@ class EthscriptionTransaction < T::Struct
 
   def build_transfer_with_previous_owner_calldata
     # Get function selector as binary
-    function_sig = Eth::Util.keccak256(
-      'transferEthscriptionForPreviousOwner(address,bytes32,address)'
-    )[0...4].b
+    function_sig = function_selector.b
 
     # Convert to binary for ABI
     to_bin = address_to_bin(transfer_to_address)
@@ -279,7 +292,7 @@ class EthscriptionTransaction < T::Struct
 
   def build_transfer_multiple_calldata
     # Get function selector as binary
-    function_sig = Eth::Util.keccak256('transferMultipleEthscriptions(bytes32[],address)')[0...4].b
+    function_sig = function_selector.b
 
     ids_bin = (transfer_ids || []).map { |id| hex_to_bin(id) }
     to_bin = address_to_bin(transfer_to_address)
