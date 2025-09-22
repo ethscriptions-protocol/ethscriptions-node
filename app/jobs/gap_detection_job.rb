@@ -30,7 +30,7 @@ class GapDetectionJob < ApplicationJob
 
         if l2_blocks.any?
           l2_block_hashes = l2_blocks.map { |block| block[:hash] }
-          ValidationJob.perform_later(block_number, l2_block_hashes, nil)
+          ValidationJob.perform_later(block_number, l2_block_hashes)
           Rails.logger.debug "GapDetectionJob: Enqueued validation for block #{block_number}"
         else
           Rails.logger.warn "GapDetectionJob: No L2 blocks found for L1 block #{block_number}"
