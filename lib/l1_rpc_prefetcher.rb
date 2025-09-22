@@ -4,7 +4,7 @@ require 'retriable'
 class L1RpcPrefetcher
   def initialize(ethereum_client:,
                  ahead: ENV.fetch('L1_PREFETCH_FORWARD', Rails.env.test? ? 5 : 200).to_i,
-                 threads: ENV.fetch('L1_PREFETCH_THREADS', Rails.env.test? ? 2 : 10).to_i)
+                 threads: ENV.fetch('L1_PREFETCH_THREADS', Rails.env.test? ? 2 : 2).to_i)
     @eth = ethereum_client
     @ahead = ahead
     @threads = threads
@@ -12,6 +12,8 @@ class L1RpcPrefetcher
     # Thread-safe collections and pool
     @pool = Concurrent::FixedThreadPool.new(threads)
     @promises = Concurrent::Map.new
+
+    Rails.logger.info "L1RpcPrefetcher initialized with #{threads} threads"
   end
 
   def ensure_prefetched(from_block)
@@ -22,8 +24,7 @@ class L1RpcPrefetcher
     return if blocks_to_fetch.empty?
 
     # Only enqueue a reasonable number at once to avoid overwhelming the promise system
-    # We'll enqueue more as blocks are consumed
-    max_to_enqueue = [@threads * 20, 100].min  # At most 20x thread count or 100
+    max_to_enqueue = [@threads * 10, 50].min
 
     to_enqueue = blocks_to_fetch.first(max_to_enqueue)
     Rails.logger.debug "Enqueueing #{to_enqueue.size} of #{blocks_to_fetch.size} blocks: #{to_enqueue.first}..#{to_enqueue.last}"
@@ -45,10 +46,10 @@ class L1RpcPrefetcher
     begin
       result = promise.value!(timeout)
       Rails.logger.debug "Got result for block #{block_number}"
+
       result
     rescue Concurrent::TimeoutError => e
       Rails.logger.error "Timeout fetching block #{block_number} after #{timeout}s"
-      # Clean up on timeout
       @promises.delete(block_number)
       raise
     end
@@ -124,30 +125,25 @@ class L1RpcPrefetcher
     client = @eth
 
     Retriable.retriable(tries: 3, base_interval: 1, max_interval: 4) do
+
       block = client.get_block(block_number, true)
+
+      # Handle case where block doesn't exist yet (normal when caught up)
+      if block.nil?
+        Rails.logger.debug "Block #{block_number} not yet available on L1"
+        return { error: :not_ready, block_number: block_number }
+      end
+
       receipts = client.get_transaction_receipts(block_number)
 
       eth_block = EthBlock.from_rpc_result(block)
       ethscriptions_block = EthscriptionsBlock.from_eth_block(eth_block)
       ethscription_txs = EthTransaction.ethscription_txs_from_rpc_results(block, receipts, ethscriptions_block)
 
-      # Also prefetch Ethscriptions API data for validation if enabled
-      api_data = nil
-      if ENV['ETHSCRIPTIONS_API_VALIDATION_ENABLED'] == 'true'
-        begin
-          api_data = EthscriptionsApiClient.fetch_block_data(block_number)
-          Rails.logger.debug "Prefetched API data for block #{block_number}"
-        rescue => e
-          # Log but don't fail - validation can handle missing API data
-          Rails.logger.warn "Failed to prefetch API data for block #{block_number}: #{e.message}"
-        end
-      end
-
       {
         eth_block: eth_block,
         ethscriptions_block: ethscriptions_block,
-        ethscription_txs: ethscription_txs,
-        api_data: api_data  # Will be nil if disabled or failed
+        ethscription_txs: ethscription_txs
       }
     end
   end

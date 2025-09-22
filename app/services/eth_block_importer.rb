@@ -17,31 +17,14 @@ class EthBlockImporter
 
     @geth_driver = GethDriver
 
-    # Validation configuration
-    @validation_enabled = ENV.fetch('VALIDATE_IMPORT').casecmp?('true')
-    @validation_stats = {passed: 0, failed: 0}
-
-    # Create a shared thread pool for validation
-    if @validation_enabled
-      @validation_threads = ENV.fetch('VALIDATION_THREADS', '10').to_i
-      @validation_executor = Concurrent::ThreadPoolExecutor.new(
-        min_threads: 1,
-        max_threads: @validation_threads,
-        max_queue: 100,
-        fallback_policy: :caller_runs
-      )
-      logger.info "Created validation thread pool with #{@validation_threads} threads"
-    end
-
     # L1 prefetcher for blocks/receipts/API data
     @prefetcher = L1RpcPrefetcher.new(
       ethereum_client: @ethereum_client,
       ahead: ENV.fetch('L1_PREFETCH_FORWARD', Rails.env.test? ? 5 : 20).to_i,
       threads: ENV.fetch('L1_PREFETCH_THREADS', Rails.env.test? ? 2 : 2).to_i
     )
-    @prefetched_api_data = {}
 
-    logger.info "EthBlockImporter initialized - Validation: #{@validation_enabled ? 'ENABLED' : 'disabled'}"
+    logger.info "EthBlockImporter initialized - Validation: #{ENV.fetch('VALIDATION_ENABLED', 'false').casecmp?('true') ? 'ENABLED' : 'disabled'}"
 
     MemeryExtensions.clear_all_caches!
 
@@ -112,9 +95,7 @@ class EthBlockImporter
   end
   memoize :current_block_number, ttl: 12.seconds
   
-  def import_batch_size
-    [blocks_behind, ENV.fetch('BLOCK_IMPORT_BATCH_SIZE', 2).to_i].min
-  end
+  # Removed batch processing - now imports one block at a time
   
   def find_first_l2_block_in_epoch(l2_block_number_candidate)
     l1_attributes = GethDriver.client.get_l1_attributes(l2_block_number_candidate)
@@ -194,20 +175,60 @@ class EthBlockImporter
   
   def import_blocks_until_done
     MemeryExtensions.clear_all_caches!
-    
-    loop do
-      begin
-        block_numbers = next_blocks_to_import(import_batch_size)
-        
-        if block_numbers.blank?
+
+    # Initialize stats tracking
+    stats_start_time = Time.current
+    stats_start_block = current_max_eth_block_number
+    blocks_imported_count = 0
+    total_gas_used = 0
+    total_transactions = 0
+    imported_l2_blocks = []
+
+    begin
+      loop do
+        # Check for validation failures before importing
+        if validation_failure_detected?
+          failed_block = get_validation_failure_block
+          logger.error "Import stopped due to validation failure at block #{failed_block}"
+          raise "Validation failure detected at block #{failed_block}"
+        end
+
+        block_number = next_block_to_import
+
+        if block_number.nil?
           raise BlockNotReadyToImportError.new("Block not ready")
         end
-        
-        import_blocks(block_numbers)
-      rescue BlockNotReadyToImportError => e
-        puts "#{e.message}. Stopping import."
-        ImportProfiler.report if ImportProfiler.enabled?
-        break
+
+        l2_blocks, l1_blocks = import_single_block(block_number)
+        blocks_imported_count += 1
+
+        # Collect stats from imported L2 blocks
+        if l2_blocks.any?
+          imported_l2_blocks.concat(l2_blocks)
+          l2_blocks.each do |l2_block|
+            total_gas_used += l2_block.gas_used if l2_block.gas_used
+            total_transactions += l2_block.ethscription_transactions.length if l2_block.ethscription_transactions
+          end
+        end
+
+        # Report stats every 25 blocks
+        if blocks_imported_count % 25 == 0
+          report_import_stats(
+            blocks_imported_count: blocks_imported_count,
+            stats_start_time: stats_start_time,
+            stats_start_block: stats_start_block,
+            total_gas_used: total_gas_used,
+            total_transactions: total_transactions,
+            imported_l2_blocks: imported_l2_blocks
+          )
+        end
+
+      rescue ReorgDetectedError => e
+        logger.error "Reorg detected: #{e.message}"
+        raise e
+      rescue => e
+        logger.error "Import error: #{e.message}"
+        raise e
       end
     end
   end
@@ -232,10 +253,9 @@ class EthBlockImporter
       ethscriptions_block.eth_block_number < oldest_eth_block_to_keep
     end
 
-    # Clean up prefetcher and API data caches
+    # Clean up prefetcher cache
     if oldest_eth_block_to_keep
       @prefetcher.clear_older_than(oldest_eth_block_to_keep)
-      @prefetched_api_data.delete_if { |block_num, _| block_num < oldest_eth_block_to_keep }
     end
   end
   
@@ -278,124 +298,75 @@ class EthBlockImporter
   def current_facet_finalized_block
     current_ethscriptions_block(:finalized)
   end
-  
-  def import_blocks(block_numbers)
-    ImportProfiler.start("import_blocks_total")
 
-    logger.info "Block Importer: importing blocks #{block_numbers.join(', ')}"
+  def import_single_block(block_number)
+    ImportProfiler.start("import_single_block")
+
+    # Removed noisy per-block logging
     start = Time.current
 
-    ImportProfiler.start("prefetch_ensure")
-    @prefetcher.ensure_prefetched(block_numbers.first)
-    ImportProfiler.stop("prefetch_ensure")
+    # Fetch block data from prefetcher
+    ImportProfiler.start("prefetch_fetch")
+    response = @prefetcher.fetch(block_number)
+    ImportProfiler.stop("prefetch_fetch")
 
-    eth_blocks = []
-    ethscriptions_blocks = []
-    res = []
-    
-    block_numbers.each do |block_number|
-      ImportProfiler.start("prefetch_fetch")
-      response = @prefetcher.fetch(block_number)
-      ImportProfiler.stop("prefetch_fetch")
-
-      eth_block = response[:eth_block]
-      ethscriptions_block = response[:ethscriptions_block]
-      ethscription_txs = response[:ethscription_txs]
-
-      ethscription_txs.each { |tx| tx.ethscriptions_block = ethscriptions_block }
-
-      if @validation_enabled && response[:api_data]
-        @prefetched_api_data[block_number] = response[:api_data]
-      end
-
-      parent_eth_block = eth_block_cache[block_number - 1]
-
-      if parent_eth_block && parent_eth_block.block_hash != eth_block.parent_hash
-        logger.info "Reorg detected at block #{block_number}"
-        raise ReorgDetectedError
-      end
-
-      ImportProfiler.start("propose_ethscriptions_block")
-      imported_ethscriptions_blocks = propose_ethscriptions_block(
-        ethscriptions_block: ethscriptions_block,
-        ethscription_txs: ethscription_txs
-      )
-      ImportProfiler.stop("propose_ethscriptions_block")
-
-      logger.debug "Block #{block_number}: Found #{ethscription_txs.length} ethscription txs, created #{imported_ethscriptions_blocks.length} L2 blocks"
-      
-      imported_ethscriptions_blocks.each do |ethscriptions_block|
-        ethscriptions_block_cache[ethscriptions_block.number] = ethscriptions_block
-      end
-      
-      eth_block_cache[eth_block.number] = eth_block
-      
-      prune_caches
-      
-      ethscriptions_blocks.concat(imported_ethscriptions_blocks)
-      eth_blocks << eth_block
-      
-      res << OpenStruct.new(
-        ethscriptions_block: imported_ethscriptions_blocks.last,
-        transactions_imported: imported_ethscriptions_blocks.last.ethscription_transactions.length
-      )
-    end
-  
-    elapsed_time = Time.current - start
-  
-    blocks = res.map(&:ethscriptions_block)
-    total_gas = blocks.sum(&:gas_used)
-    total_transactions = res.sum(&:transactions_imported)
-    blocks_per_second = (blocks.length / elapsed_time).round(2)
-    transactions_per_second = (total_transactions / elapsed_time).round(2)
-    total_gas_millions = (total_gas / 1_000_000.0).round(2)
-    average_gas_per_block_millions = (total_gas / blocks.length / 1_000_000.0).round(2)
-    gas_per_second_millions = (total_gas / elapsed_time / 1_000_000.0).round(2)
-  
-    logger.info "Time elapsed: #{elapsed_time.round(2)} s"
-    logger.info "Imported #{block_numbers.length} blocks. #{blocks_per_second} blocks / s"
-    logger.info "Imported #{total_transactions} transactions (#{transactions_per_second} / s)"
-    logger.info "Total gas used: #{total_gas_millions} million (avg: #{average_gas_per_block_millions} million / block)"
-    logger.info "Gas per second: #{gas_per_second_millions} million / s"
-
-    if block_numbers.length >= 10
-      stats = @prefetcher.stats
-      logger.info "Prefetcher stats: promises=#{stats[:promises_total]} " \
-                  "(fulfilled=#{stats[:promises_fulfilled]}, pending=#{stats[:promises_pending]}, " \
-                  "threads_active=#{stats[:threads_active]}, queued=#{stats[:threads_queued]})"
+    # Handle cancellation, fetch failure, or block not ready
+    if response.nil?
+      raise BlockNotReadyToImportError.new("Block #{block_number} fetch was cancelled or failed")
     end
 
-    # Validate imported blocks if enabled
-    if @validation_enabled
-      if ethscriptions_blocks.any?
-        ImportProfiler.start("validation_wall_clock")
-        start_validation = Time.current
-        logger.info "Starting parallel validation for #{block_numbers.length} blocks with #{ethscriptions_blocks.length} L2 blocks"
-        validate_imported_blocks(block_numbers, ethscriptions_blocks)
-        validation_time = Time.current - start_validation
-        ImportProfiler.stop("validation_wall_clock")
-        logger.info "Validation completed in #{validation_time.round(2)}s (#{(block_numbers.length / validation_time).round(2)} blocks/s)"
-      else
-        logger.info "Validation enabled but no ethscriptions blocks to validate"
-      end
-    elsif ENV['VALIDATE_IMPORT'] == 'true'
-      logger.warn "Validation requested but not enabled in importer initialization"
+    if response[:error] == :not_ready
+      raise BlockNotReadyToImportError.new("Block #{block_number} not yet available on L1")
     end
 
-    ImportProfiler.stop("import_blocks_total")
+    eth_block = response[:eth_block]
+    ethscriptions_block = response[:ethscriptions_block]
+    ethscription_txs = response[:ethscription_txs]
 
-    # Generate profiling report after each batch
-    if ImportProfiler.enabled?
-      ImportProfiler.report
-      ImportProfiler.reset
+    ethscription_txs.each { |tx| tx.ethscriptions_block = ethscriptions_block }
+
+    # Check for reorg by validating parent hash
+    parent_eth_block = eth_block_cache[block_number - 1]
+    if parent_eth_block && parent_eth_block.block_hash != eth_block.parent_hash
+      logger.error "Reorg detected at block #{block_number}"
+      raise ReorgDetectedError.new("Parent hash mismatch at block #{block_number}")
     end
 
-    [ethscriptions_blocks, eth_blocks]
+    # Import the L2 block(s)
+    ImportProfiler.start("propose_ethscriptions_block")
+    imported_ethscriptions_blocks = propose_ethscriptions_block(
+      ethscriptions_block: ethscriptions_block,
+      ethscription_txs: ethscription_txs
+    )
+    ImportProfiler.stop("propose_ethscriptions_block")
+
+    logger.debug "Block #{block_number}: Found #{ethscription_txs.length} ethscription txs, created #{imported_ethscriptions_blocks.length} L2 blocks"
+
+    # Update caches
+    imported_ethscriptions_blocks.each do |ethscriptions_block|
+      ethscriptions_block_cache[ethscriptions_block.number] = ethscriptions_block
+    end
+    eth_block_cache[eth_block.number] = eth_block
+    prune_caches
+
+    # Queue validation job if validation is enabled
+    if ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
+      l2_block_hashes = imported_ethscriptions_blocks.map { |block| block.block_hash.to_hex }
+      ValidationJob.perform_later(block_number, l2_block_hashes)
+    end
+
+    # Removed noisy per-block timing logs
+
+    ImportProfiler.stop("import_single_block")
+
+    [imported_ethscriptions_blocks, [eth_block]]
   end
+  
+  # Legacy batch import method removed - use import_single_block instead
   
   def import_next_block
     block_number = next_block_to_import
-    import_blocks([block_number])
+    import_single_block(block_number)
   end
   
   def next_block_to_import
@@ -424,142 +395,96 @@ class EthBlockImporter
     @geth_driver
   end
 
-  # Validation methods
-  private
-
-  def validate_imported_blocks(l1_block_numbers, l2_blocks)
-    return unless @validation_enabled
-
-    # Group L2 blocks by their L1 block number
-    l2_blocks_by_l1 = {}
-
-    l2_blocks.each do |l2_block|
-      l1_num = l2_block.eth_block_number
-      l2_blocks_by_l1[l1_num] ||= []
-      l2_blocks_by_l1[l1_num] << l2_block.block_hash.to_hex
-    end
-
-    # Create validation promises for each block using the shared executor
-    validation_promises = l1_block_numbers.map do |l1_block_num|
-      l2_hashes = l2_blocks_by_l1[l1_block_num] || []
-
-      Concurrent::Promise.execute(executor: @validation_executor) do
-        if l2_hashes.empty?
-          {
-            block: l1_block_num,
-            status: :failed,
-            message: "No L2 blocks found for L1 block #{l1_block_num}",
-            errors: ["No L2 blocks found for L1 block #{l1_block_num}"]
-          }
-        else
-          begin
-            validator = BlockValidator.new
-            api_data = @prefetched_api_data.delete(l1_block_num)
-            result = validator.validate_l1_block(l1_block_num, l2_hashes, expected_override: api_data)
-
-            if result.stats[:api_unavailable]
-              {
-                block: l1_block_num,
-                status: :failed,
-                result: result,
-                errors: result.errors.presence || ["API unavailable for block #{l1_block_num}"],
-                message: "API unavailable for block #{l1_block_num}"
-              }
-            elsif result.stats[:incomplete_actual]
-              {
-                block: l1_block_num,
-                status: :failed,
-                result: result,
-                errors: result.errors.presence || ["Incomplete L2 receipts for block #{l1_block_num}"],
-                message: "Incomplete L2 receipts for block #{l1_block_num}"
-              }
-            else
-              payload = {
-                block: l1_block_num,
-                status: result.success ? :passed : :failed,
-                result: result,
-                errors: result.errors
-              }
-              payload
-            end
-          rescue => e
-            {
-              block: l1_block_num,
-              status: :error,
-              message: e.message,
-              backtrace: e.backtrace.first(5),
-              errors: [e.message]
-            }
-          end
-        end
-      end
-    end
-
-    # Wait for all validations to complete and process results
-    validation_results = validation_promises.map(&:value!)
-
-    # Process results and update stats
-    validation_results.each do |validation|
-      case validation[:status]
-      when :passed
-        validation[:result].log_summary(logger)
-        @validation_stats[:passed] += 1
-      when :failed
-        validation[:result]&.log_summary(logger)
-        @validation_stats[:failed] += 1
-        binding.irb if ENV['DEBUG'] == '1'
-        raise "Validation failed for L1 block #{validation[:block]}: #{Array(validation[:errors]).join('; ')}"
-      when :error
-        logger.error "Validation error for block #{validation[:block]}: #{validation[:message]}"
-        logger.error validation[:backtrace].join("\n") if ENV['DEBUG'] && validation[:backtrace]
-        @validation_stats[:failed] += 1
-        binding.irb if ENV['DEBUG'] == '1'
-        raise "Validation failed for L1 block #{validation[:block]}: #{Array(validation[:errors]).join('; ')}"
-      end
-    end
-
-    log_validation_summary
+  def validation_failure_detected?
+    ValidationResult.failed.exists?
   end
 
-  def log_validation_summary
-    return unless @validation_enabled
-
-    total = @validation_stats.values.sum
-    return if total == 0
-
-    pass_rate = (@validation_stats[:passed].to_f / total * 100).round(2)
-
-    logger.info "=" * 60
-    logger.info "Validation Summary: #{@validation_stats[:passed]}/#{total} passed (#{pass_rate}%)"
-    logger.info "  Passed: #{@validation_stats[:passed]}"
-    logger.info "  Failed: #{@validation_stats[:failed]}"
-    logger.info "=" * 60
+  def get_validation_failure_block
+    ValidationResult.failed.order(:l1_block).first&.l1_block
   end
+
+  def report_import_stats(blocks_imported_count:, stats_start_time:, stats_start_block:,
+                         total_gas_used:, total_transactions:, imported_l2_blocks:)
+    elapsed_time = Time.current - stats_start_time
+    current_block = current_max_eth_block_number
+
+    # Calculate core metrics
+    blocks_per_second = blocks_imported_count / elapsed_time
+    transactions_per_second = total_transactions / elapsed_time
+    total_gas_millions = (total_gas_used / 1_000_000.0).round(2)
+    gas_per_second_millions = (total_gas_used / elapsed_time / 1_000_000.0).round(2)
+    average_gas_per_block_millions = imported_l2_blocks.any? ?
+      (total_gas_used / imported_l2_blocks.length / 1_000_000.0).round(2) : 0
+
+    # Basic stats (always shown)
+    logger.info "=" * 70
+    logger.info "📊 IMPORT STATS (#{blocks_imported_count} L1 blocks, #{imported_l2_blocks.length} L2 blocks)"
+    logger.info "🏁 Blocks: #{stats_start_block + 1} → #{current_block}"
+    logger.info "⚡ Speed: #{blocks_per_second.round(2)} blocks/sec"
+    logger.info "⏱️  Time: #{elapsed_time.round(1)}s total"
+    logger.info "📝 Transactions: #{total_transactions} (#{transactions_per_second.round(2)}/sec)"
+    logger.info "⛽ Gas: #{total_gas_millions}M total (#{gas_per_second_millions.round(2)}M/sec)"
+    logger.info "📊 Avg Gas/Block: #{average_gas_per_block_millions}M"
+
+    # Detailed validation stats from database
+    if ENV.fetch('VALIDATION_ENABLED', 'false').casecmp?('true')
+      last_validated = ValidationResult.last_validated_block || 0
+      validation_lag = current_block - last_validated
+
+      # Get recent validation stats
+      validation_stats = ValidationResult.validation_stats(since: 1.hour.ago)
+
+      # Calculate validation health
+      lag_status = case validation_lag
+      when 0..5 then "✅ CURRENT"
+      when 6..25 then "⚠️  BEHIND"
+      when 26..100 then "🟡 LAGGING"
+      else "🔴 VERY BEHIND"
+      end
+
+      logger.info "🔍 VALIDATION: #{lag_status} (#{validation_lag} blocks behind)"
+      if validation_stats[:total] > 0
+        logger.info "   Stats: #{validation_stats[:passed]}/#{validation_stats[:total]} passed (#{validation_stats[:pass_rate]}%), #{validation_stats[:failed]} failed"
+      else
+        logger.info "   Stats: No validations completed yet"
+      end
+      logger.info "   Progress: #{last_validated}/#{current_block} validated"
+    else
+      logger.info "🔍 Validation: DISABLED"
+    end
+
+    # Prefetcher stats if available
+    if blocks_imported_count >= 10
+      stats = @prefetcher.stats
+      logger.info "🔄 Prefetcher: #{stats[:promises_fulfilled]}/#{stats[:promises_total]} fulfilled " \
+                  "(#{stats[:threads_active]} active, #{stats[:threads_queued]} queued)"
+    end
+
+    # Enhanced stats when profiling is enabled
+    if ImportProfiler.enabled?
+      logger.info ""
+      logger.info "🔍 DETAILED PROFILER STATS:"
+      ImportProfiler.report
+      ImportProfiler.reset
+    end
+
+    logger.info "=" * 70
+  end
+
+  # Validation now handled by SolidQueue jobs
 
   public
 
   def validation_summary
-    return nil unless @validation_enabled
+    return nil unless ENV.fetch('VALIDATION_ENABLED', 'false').casecmp?('true')
 
-    total = @validation_stats.values.sum
-    pass_rate = total > 0 ? (@validation_stats[:passed].to_f / total * 100).round(2) : 0
+    stats = ValidationResult.validation_stats(since: 1.hour.ago)
+    return "No validations completed" if stats[:total] == 0
 
-    "Validation: #{@validation_stats[:passed]}/#{total} passed (#{pass_rate}%), " \
-    "#{@validation_stats[:failed]} failed"
+    "#{stats[:passed]}/#{stats[:total]} passed (#{stats[:pass_rate]}%), #{stats[:failed]} failed"
   end
 
   def shutdown
     @prefetcher&.shutdown
-
-    if @validation_executor
-      logger.info "Shutting down validation thread pool..."
-      @validation_executor.shutdown
-      if @validation_executor.wait_for_termination(10)
-        logger.info "Validation thread pool shut down successfully"
-      else
-        logger.warn "Validation thread pool shutdown timed out, forcing kill"
-        @validation_executor.kill
-      end
-    end
   end
 end

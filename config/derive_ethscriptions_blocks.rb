@@ -12,8 +12,9 @@ REQUIRED_CONFIG = {
   'L1_RPC_URL' => { description: 'L1 RPC URL for fetching blocks', required: true },
   'JWT_SECRET' => { description: 'JWT Secret for Engine API', required: true },
   'L1_GENESIS_BLOCK' => { description: 'L1 Genesis Block number', required: true },
-  'BLOCK_IMPORT_BATCH_SIZE' => { description: 'Block import batch size', default: '2' },
-  'VALIDATE_IMPORT' => { description: 'Enable validation (true/false)', default: 'false' },
+  'L1_PREFETCH_THREADS' => { description: 'L1 prefetch thread count', default: '2' },
+  'VALIDATION_ENABLED' => { description: 'Enable validation (true/false)', default: 'false' },
+  'JOB_CONCURRENCY' => { description: 'SolidQueue worker processes', default: '2' },
   'IMPORT_INTERVAL' => { description: 'Seconds between import attempts', default: '6' }
 }
 
@@ -35,7 +36,7 @@ parser = OptionParser.new do |opts|
     puts "\nExample:"
     puts "  L1_NETWORK=mainnet L1_RPC_URL=https://eth.llamarpc.com GETH_RPC_URL=http://localhost:9545 \\"
     puts "    NON_AUTH_GETH_RPC_URL=http://localhost:8545 JWT_SECRET=/tmp/jwtsecret \\"
-    puts "    L1_GENESIS_BLOCK=17478951 VALIDATE_IMPORT=true \\"
+    puts "    L1_GENESIS_BLOCK=17478951 VALIDATION_ENABLED=true \\"
     puts "    bundle exec clockwork config/derive_ethscriptions_blocks.rb"
     exit
   end
@@ -81,8 +82,9 @@ puts "  L1 Network: #{ENV['L1_NETWORK']}"
 puts "  L1 Genesis Block: #{ENV['L1_GENESIS_BLOCK']}"
 puts "  L1 RPC: #{ENV['L1_RPC_URL'][0..30]}..."
 puts "  Geth RPC: #{ENV['NON_AUTH_GETH_RPC_URL']}"
-puts "  Batch Size: #{ENV['BLOCK_IMPORT_BATCH_SIZE']}"
-puts "  Validation: #{ENV['VALIDATE_IMPORT'] == 'true' ? 'ENABLED' : 'disabled'}"
+puts "  L1 Prefetch Threads: #{ENV['L1_PREFETCH_THREADS']}"
+puts "  Job Concurrency: #{ENV['JOB_CONCURRENCY']}"
+puts "  Validation: #{ENV['VALIDATION_ENABLED'] == 'true' ? 'ENABLED' : 'disabled'}"
 puts "  Import Interval: #{ENV['IMPORT_INTERVAL']}s"
 puts "="*80
 
@@ -148,7 +150,7 @@ module Clockwork
           puts "[#{Time.now}] Imported #{blocks_imported} blocks (#{initial_block + 1} to #{final_block})"
 
           # Show validation summary if enabled
-          if ENV['VALIDATE_IMPORT'] == 'true'
+          if ENV['VALIDATION_ENABLED'] == 'true'
             puts importer.validation_summary
           end
         else

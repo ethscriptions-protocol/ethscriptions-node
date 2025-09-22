@@ -3,7 +3,7 @@ source "https://rubygems.org"
 ruby "3.4.4"
 
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
-gem "rails", "~> 7.1.2"
+gem "rails", "8.0.2.1"
 
 # Use postgresql as the database for Active Record
 
@@ -98,3 +98,7 @@ gem 'ostruct'
 gem "oj", "~> 3.16"
 
 gem "retriable", "~> 3.1"
+
+# Database and job processing
+gem "sqlite3", ">= 2.1"
+gem "solid_queue"

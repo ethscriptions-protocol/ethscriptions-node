@@ -17,13 +17,13 @@ class BlockValidator
     )
   end
 
-  def validate_l1_block(l1_block_number, l2_block_hashes, expected_override: nil)
+  def validate_l1_block(l1_block_number, l2_block_hashes)
     reset_validation_state
 
-    Rails.logger.info "Validating L1 block #{l1_block_number} with #{l2_block_hashes.size} L2 blocks"
+    # Rails.logger.info "Validating L1 block #{l1_block_number} with #{l2_block_hashes.size} L2 blocks"
 
     # Use prefetched data if provided, otherwise fetch from API
-    expected = expected_override || fetch_expected_data(l1_block_number)
+    expected = fetch_expected_data(l1_block_number)
 
     # Get actual data from L2 events
     actual_events = aggregate_l2_events(l2_block_hashes)
@@ -41,7 +41,8 @@ class BlockValidator
     # Build result
     success = @errors.empty? && !@incomplete_actual && !expected[:api_unavailable]
 
-    result = ValidationResult.new(
+    # Return a simple struct with validation results
+    result = OpenStruct.new(
       success: success,
       errors: @errors,
       l1_block: l1_block_number,
@@ -430,40 +431,3 @@ class BlockValidator
   end
 end
 
-class ValidationResult
-  attr_reader :success, :errors, :l1_block, :stats
-
-  def initialize(success:, errors:, l1_block:, stats:)
-    @success = success
-    @errors = errors
-    @l1_block = l1_block
-    @stats = stats
-  end
-
-  def log_summary(logger = Rails.logger)
-    if success
-      if stats[:actual_creations].to_i > 0 || stats[:actual_transfers].to_i > 0 || stats[:storage_checks].to_i > 0
-        logger.info "✅ Block #{l1_block} validated successfully: " \
-                    "#{stats[:actual_creations]} creations, " \
-                    "#{stats[:actual_transfers]} transfers, " \
-                    "#{stats[:storage_checks]} storage checks"
-      end
-    else
-      logger.error "❌ Block #{l1_block} validation failed with #{errors.size} errors:"
-      errors.first(5).each { |e| logger.error "  - #{e}" }
-      logger.error "  ... and #{errors.size - 5} more errors" if errors.size > 5
-      binding.irb if ENV['DEBUG'] == '1'
-      raise "Validation failed"
-      exit 1
-    end
-  end
-
-  def to_h
-    {
-      success: success,
-      l1_block: l1_block,
-      errors: errors,
-      stats: stats
-    }
-  end
-end

@@ -49,20 +49,12 @@ Rails.application.configure do
   # want to log everything, set the level to "debug".
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
 
-  # Use a different cache store in production.
-  config.cache_store = :mem_cache_store,
-  (ENV["MEMCACHIER_SERVERS"] || "").split(","),
-  {:username => ENV["MEMCACHIER_USERNAME"],
-   :password => ENV["MEMCACHIER_PASSWORD"],
-   :failover => true,
-   :socket_timeout => 1.5,
-   :socket_failure_delay => 0.2,
-   :down_retry_delay => 60,
-   compress: true
-  }
+  # Use file-based cache store for persistent checkpoints
+  config.cache_store = :file_store, Rails.root.join("tmp", "cache", "checkpoints")
 
   # Use a real queuing backend for Active Job (and separate queues per environment).
-  # config.active_job.queue_adapter = :resque
+  config.active_job.queue_adapter = :solid_queue
+  config.solid_queue.connects_to = { database: { writing: :queue } }
   # config.active_job.queue_name_prefix = "eths_indexer_production"
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
