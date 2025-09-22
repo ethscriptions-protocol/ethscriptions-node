@@ -4,7 +4,7 @@ require 'retriable'
 class L1RpcPrefetcher
   def initialize(ethereum_client:,
                  ahead: ENV.fetch('L1_PREFETCH_FORWARD', Rails.env.test? ? 5 : 200).to_i,
-                 threads: ENV.fetch('L1_PREFETCH_THREADS', Rails.env.test? ? 2 : 2).to_i)
+                 threads: ENV.fetch('L1_PREFETCH_THREADS', 2).to_i)
     @eth = ethereum_client
     @ahead = ahead
     @threads = threads
