@@ -113,13 +113,6 @@ class ImportProfiler
     Rails.logger.info sprintf("%-45s %8s %10.1f %8s %8s %8s %10.3f",
                               "TOTAL", "", grand_total * 1000, "", "", "", grand_total)
     Rails.logger.info "=" * 100
-
-    # Also print a summary of top time consumers
-    Rails.logger.info "\nTop 5 Time Consumers:"
-    report_data.first(5).each_with_index do |data, i|
-      pct = grand_total > 0 ? ((data[:total] / grand_total) * 100).round(1) : 0
-      Rails.logger.info "  #{i+1}. #{data[:label]}: #{data[:total_ms].round(1)}ms (#{pct}%)"
-    end
   end
 
   def reset

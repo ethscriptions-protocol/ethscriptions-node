@@ -17,31 +17,24 @@ Rails.application.configure do
   # Enable server timing
   config.server_timing = true
   
-  # Enable/disable caching. By default caching is disabled.
-  # Run rails dev:cache to toggle caching.
-  if Rails.root.join("tmp/caching-dev.txt").exist?
-    config.cache_store = :mem_cache_store,
-      'localhost',
-      {
-        failover: true,
-        socket_timeout: 1.5,
-        socket_failure_delay: 0.2,
-        down_retry_delay: 60,
-        compress: true
-      }
-    config.public_file_server.headers = {
-      "Cache-Control" => "public, max-age=#{2.days.to_i}"
-    }
-  else
-    config.action_controller.perform_caching = false
+  # Enable file-based caching for persistent checkpoints
+  config.action_controller.perform_caching = true
+  config.cache_store = :file_store, Rails.root.join("tmp", "cache", "checkpoints")
 
-    config.cache_store = :null_store
-  end
-  
   # Output logger to STDOUT for development
   config.logger = ActiveSupport::Logger.new(STDOUT)
   config.logger.formatter = Logger::Formatter.new
   config.log_level = :info
+
+  # Reduce ActiveJob/SolidQueue log noise
+  config.active_job.logger = Logger.new(STDOUT)
+  config.active_job.logger.level = Logger::WARN
+  config.solid_queue.logger = Logger.new(STDOUT)
+  config.solid_queue.logger.level = Logger::WARN
+
+  # Use Solid Queue in Development.
+  config.active_job.queue_adapter = :solid_queue
+  config.solid_queue.connects_to = { database: { writing: :queue } }
 
   # Print deprecation notices to the Rails logger.
   config.active_support.deprecation = :log

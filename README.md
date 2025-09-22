@@ -181,7 +181,6 @@ JWT_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 BLOCK_IMPORT_BATCH_SIZE=2
 IMPORT_INTERVAL=6
 VALIDATE_IMPORT=false
-VALIDATE_STRICT=false
 ETHSCRIPTIONS_API_BASE_URL=http://127.0.0.1:3000
 LOCAL_GETH_DIR=/path/to/op-geth
 GETH_DISCOVERY_PORT=30303
@@ -235,7 +234,7 @@ Expected behavior:
 - For each cycle: fetch L1 blocks, build deposits, propose L2 blocks, optionally validate.
 - Logs show throughput, gas metrics, validation summary, e.g. `✅ Block 17480871 validated successfully: 1 creations, 0 transfers, 2 storage checks`.
 
-Use `--strict` to halt on validation errors or warnings.
+Validation failures halt immediately, no extra flags required.
 
 ### 4.5 Start the Rails API (Optional)
 
@@ -299,7 +298,7 @@ Ruby should **not**:
 2. Decodes L2 receipts via `EventDecoder` (`EthscriptionCreated`, `EthscriptionTransferred`, ERC-721 `Transfer`).
 3. Compares expected vs. actual events (counts, creator/owner addresses). Uses protocol-level transfer events to avoid ERC-721 mint `from=0x0` quirks.
 4. Reads contract storage via `StorageReader` with EIP-1898 block hash tags to confirm metadata and final owner.
-5. Aggregates stats/errors/warnings in `ValidationResult`. Remove any `binding.irb` calls before running in production.
+5. Aggregates stats/errors in `ValidationResult`. Remove any `binding.irb` calls before running in production.
 
 ### 6.3 Typical Validation Messages
 
@@ -324,7 +323,6 @@ Ruby should **not**:
 | `BLOCK_IMPORT_BATCH_SIZE` | L1 blocks per import batch | `2` |
 | `IMPORT_INTERVAL` | Seconds between importer iterations | `6` |
 | `VALIDATE_IMPORT` | Enable validator | `false` |
-| `VALIDATE_STRICT` | Halt on validation failure/warning | `false` |
 | `VALIDATION_THREADS` | Thread count for validator | `50` |
 | `ETHSCRIPTIONS_API_BASE_URL` | API used as validation reference | `http://127.0.0.1:3000` |
 | `LOCAL_GETH_DIR` | Path for genesis helper | — |
