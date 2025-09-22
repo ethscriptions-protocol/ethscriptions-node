@@ -57,6 +57,7 @@ class ValidationResult < ApplicationRecord
     begin
       # Create validator and validate (validator fetches its own API data)
       validator = BlockValidator.new
+      start_time = Time.current
       block_result = validator.validate_l1_block(l1_block_number, l2_block_hashes)
 
       # Store comprehensive validation result with full debugging data
@@ -78,7 +79,7 @@ class ValidationResult < ApplicationRecord
           raw_l2_events: block_result.respond_to?(:l2_events) ? block_result.l2_events : nil,
 
           # Timing info
-          validation_duration: Time.current - Time.current
+          validation_duration_ms: ((Time.current - start_time) * 1000).round(2)
         }
         vr.validated_at = Time.current
       end

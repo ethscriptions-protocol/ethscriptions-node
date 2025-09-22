@@ -2,19 +2,7 @@ class BlockValidator
   attr_reader :errors, :stats
 
   def initialize
-    @errors = Concurrent::Array.new
-    @stats = {}
-    @storage_checks_performed = Concurrent::AtomicFixnum.new(0)
-    @incomplete_actual = false
-
-    # Debugging instrumentation - capture actual validation results
-    @debug_data = {
-      creation_results: [],
-      transfer_results: [],
-      storage_results: []
-    }
-
-    # Thread pool for storage verification
+    # Initialize thread pool for storage verification
     storage_threads = ENV.fetch('STORAGE_VERIFICATION_THREADS', '2').to_i
     @storage_executor = Concurrent::ThreadPoolExecutor.new(
       min_threads: 1,
@@ -22,6 +10,9 @@ class BlockValidator
       max_queue: storage_threads * 3,
       fallback_policy: :caller_runs
     )
+
+    # Initialize validation state
+    reset_validation_state
   end
 
   def validate_l1_block(l1_block_number, l2_block_hashes)
