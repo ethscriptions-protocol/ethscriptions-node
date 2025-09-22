@@ -191,6 +191,9 @@ class EthBlockImporter
     total_transactions = 0
     imported_l2_blocks = []
 
+    # Track timing for recent batch calculations
+    recent_batch_start_time = Time.current
+
     begin
       loop do
         # Check for validation failures before importing
@@ -220,14 +223,18 @@ class EthBlockImporter
 
         # Report stats every 25 blocks
         if blocks_imported_count % 25 == 0
+          recent_batch_time = Time.current - recent_batch_start_time
           report_import_stats(
             blocks_imported_count: blocks_imported_count,
             stats_start_time: stats_start_time,
             stats_start_block: stats_start_block,
             total_gas_used: total_gas_used,
             total_transactions: total_transactions,
-            imported_l2_blocks: imported_l2_blocks
+            imported_l2_blocks: imported_l2_blocks,
+            recent_batch_time: recent_batch_time
           )
+          # Reset recent batch timer
+          recent_batch_start_time = Time.current
         end
 
       rescue ReorgDetectedError => e
@@ -415,7 +422,7 @@ class EthBlockImporter
   end
 
   def cleanup_stale_validation_records
-    # Remove validation records ahead of our starting position
+    # Remove validation records AND pending jobs ahead of our starting position
     # These are from previous runs and may be stale due to reorgs
     starting_position = current_max_eth_block_number
     stale_count = ValidationResult.where('l1_block > ?', starting_position).count
@@ -424,40 +431,56 @@ class EthBlockImporter
       logger.info "Cleaning up #{stale_count} stale validation records ahead of block #{starting_position}"
       ValidationResult.where('l1_block > ?', starting_position).delete_all
     end
+
+    # Cancel all pending validation jobs on startup (fresh start)
+    pending_jobs = SolidQueue::Job.where(queue_name: 'validation', finished_at: nil)
+
+    if pending_jobs.exists?
+      cancelled_count = pending_jobs.count
+      logger.info "Cancelling #{cancelled_count} pending validation jobs from previous run"
+      pending_jobs.delete_all
+    end
   end
 
   def report_import_stats(blocks_imported_count:, stats_start_time:, stats_start_block:,
-                         total_gas_used:, total_transactions:, imported_l2_blocks:)
+                         total_gas_used:, total_transactions:, imported_l2_blocks:, recent_batch_time:)
     elapsed_time = Time.current - stats_start_time
     current_block = current_max_eth_block_number
 
-    # Calculate core metrics
-    blocks_per_second = blocks_imported_count / elapsed_time
-    transactions_per_second = total_transactions / elapsed_time
+    # Calculate cumulative metrics (entire session)
+    cumulative_blocks_per_second = blocks_imported_count / elapsed_time
+    cumulative_transactions_per_second = total_transactions / elapsed_time
     total_gas_millions = (total_gas_used / 1_000_000.0).round(2)
-    gas_per_second_millions = (total_gas_used / elapsed_time / 1_000_000.0).round(2)
-    average_gas_per_block_millions = imported_l2_blocks.any? ?
-      (total_gas_used / imported_l2_blocks.length / 1_000_000.0).round(2) : 0
+    cumulative_gas_per_second_millions = (total_gas_used / elapsed_time / 1_000_000.0).round(2)
 
-    # Basic stats (always shown)
-    logger.info "=" * 70
-    logger.info "📊 IMPORT STATS (#{blocks_imported_count} L1 blocks, #{imported_l2_blocks.length} L2 blocks)"
-    logger.info "🏁 Blocks: #{stats_start_block + 1} → #{current_block}"
-    logger.info "⚡ Speed: #{blocks_per_second.round(2)} blocks/sec"
-    logger.info "⏱️  Time: #{elapsed_time.round(1)}s total"
-    logger.info "📝 Transactions: #{total_transactions} (#{transactions_per_second.round(2)}/sec)"
-    logger.info "⛽ Gas: #{total_gas_millions}M total (#{gas_per_second_millions.round(2)}M/sec)"
-    logger.info "📊 Avg Gas/Block: #{average_gas_per_block_millions}M"
+    # Calculate recent batch metrics (last 25 blocks using actual timing)
+    recent_l2_blocks = imported_l2_blocks.last(25)
+    recent_gas = recent_l2_blocks.sum { |block| block.gas_used || 0 }
+    recent_transactions = recent_l2_blocks.sum { |block| block.ethscription_transactions&.length || 0 }
 
-    # Detailed validation stats from database
+    recent_blocks_per_second = 25 / recent_batch_time
+    recent_transactions_per_second = recent_transactions / recent_batch_time
+    recent_gas_millions = (recent_gas / 1_000_000.0).round(2)
+    recent_gas_per_second_millions = (recent_gas / recent_batch_time / 1_000_000.0).round(2)
+
+    # Build single comprehensive stats message
+    stats_message = <<~MSG
+      #{"=" * 70}
+      📊 IMPORT STATS
+      🏁 Blocks: #{stats_start_block + 1} → #{current_block} (#{blocks_imported_count} total)
+
+      ⚡ Speed: #{recent_blocks_per_second.round(1)} bl/s (#{cumulative_blocks_per_second.round(1)} session)
+      📝 Transactions: #{recent_transactions} (#{total_transactions} total) | #{recent_transactions_per_second.round(1)}/s (#{cumulative_transactions_per_second.round(1)}/s session)
+      ⛽ Gas: #{recent_gas_millions}M (#{total_gas_millions}M total) | #{recent_gas_per_second_millions.round(1)}M/s (#{cumulative_gas_per_second_millions.round(1)}M/s session)
+      ⏱️  Time: #{recent_batch_time.round(1)}s recent | #{elapsed_time.round(1)}s total session
+    MSG
+
+    # Add validation stats to message
     if ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
       last_validated = ValidationResult.last_validated_block || 0
       validation_lag = current_block - last_validated
-
-      # Get recent validation stats
       validation_stats = ValidationResult.validation_stats(since: 1.hour.ago)
 
-      # Calculate validation health
       lag_status = case validation_lag
       when 0..5 then "✅ CURRENT"
       when 6..25 then "⚠️  BEHIND"
@@ -465,25 +488,31 @@ class EthBlockImporter
       else "🔴 VERY BEHIND"
       end
 
-      logger.info "🔍 VALIDATION: #{lag_status} (#{validation_lag} blocks behind)"
       if validation_stats[:total] > 0
-        logger.info "   Stats: #{validation_stats[:passed]}/#{validation_stats[:total]} passed (#{validation_stats[:pass_rate]}%), #{validation_stats[:failed]} failed"
+        validation_line = "🔍 VALIDATION: #{lag_status} (#{validation_lag} behind) | #{validation_stats[:passed]}/#{validation_stats[:total]} passed (#{validation_stats[:pass_rate]}%)"
       else
-        logger.info "   Stats: No validations completed yet"
+        validation_line = "🔍 VALIDATION: #{lag_status} (#{validation_lag} behind) | No validations completed yet"
       end
-      logger.info "   Progress: #{last_validated}/#{current_block} validated"
     else
-      logger.info "🔍 Validation: DISABLED"
+      validation_line = "🔍 Validation: DISABLED"
     end
 
-    # Prefetcher stats if available
+    # Add prefetcher stats if available
     if blocks_imported_count >= 10
       stats = @prefetcher.stats
-      logger.info "🔄 Prefetcher: #{stats[:promises_fulfilled]}/#{stats[:promises_total]} fulfilled " \
-                  "(#{stats[:threads_active]} active, #{stats[:threads_queued]} queued)"
+      prefetcher_line = "🔄 Prefetcher: #{stats[:promises_fulfilled]}/#{stats[:promises_total]} fulfilled (#{stats[:threads_active]} active, #{stats[:threads_queued]} queued)"
+    else
+      prefetcher_line = ""
     end
 
-    # Enhanced stats when profiling is enabled
+    # Combine validation and prefetcher stats into main message
+    stats_message += "\n#{validation_line}"
+    stats_message += "\n#{prefetcher_line}" if prefetcher_line.present?
+    stats_message += "\n#{"=" * 70}"
+
+    # Output single message to reduce flicker
+    logger.info stats_message
+    
     if ImportProfiler.enabled?
       logger.info ""
       logger.info "🔍 DETAILED PROFILER STATS:"
