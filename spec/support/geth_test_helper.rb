@@ -9,9 +9,6 @@ module GethTestHelper
     
     teardown_rspec_geth
     
-    # Generate genesis file using foundry script
-    generate_genesis_file
-    
     @temp_datadir = Dir.mktmpdir('geth_datadir_', '/tmp')
     geth_dir_hash = Digest::SHA256.hexdigest(ENV.fetch('LOCAL_GETH_DIR')).first(5)
     log_file_location = Rails.root.join('tmp', "geth_#{geth_dir_hash}.log").to_s
@@ -19,11 +16,18 @@ module GethTestHelper
       File.delete(log_file_location)
     end
     
-    genesis_filename = ChainIdManager.on_mainnet? ? "ethscriptions-mainnet.json" : "ethscriptions-sepolia.json"
-    genesis_path = Rails.root.join('tmp', genesis_filename)
+    genesis_path = GenesisGenerator.new.run!
+    
+    file = Tempfile.new
+    file.write(ENV.fetch('JWT_SECRET'))
+    file.close
+    
+    cmd = "cd #{geth_dir} && make geth && ./build/bin/geth init --cache.preimages --state.scheme=hash --datadir #{@temp_datadir} #{genesis_path}"
+    
+    puts "Running: #{cmd}"
     
     # Initialize geth with the generated genesis file
-    system("cd #{geth_dir} && make geth && ./build/bin/geth init --cache.preimages --state.scheme=hash --datadir #{@temp_datadir} #{genesis_path}")
+    system(cmd)
     
     geth_command = [
       "#{geth_dir}/build/bin/geth",
@@ -31,7 +35,7 @@ module GethTestHelper
       "--http",
       "--http.api", "eth,net,web3,debug",
       "--http.vhosts", "*",
-      "--authrpc.jwtsecret", "/tmp/jwtsecret",
+      "--authrpc.jwtsecret", file.path,
       "--http.port", http_port,
       "--authrpc.port", authrpc_port,
       "--discovery.port", discovery_port,
@@ -76,30 +80,8 @@ module GethTestHelper
   end
   
   def generate_genesis_file
-    contracts_dir = Rails.root.join('contracts')
-    
-    # Run foundry script to generate genesis
-    cmd = <<~CMD
-      cd #{contracts_dir} && \
-      forge script script/L2Genesis.s.sol:L2Genesis \
-        --sig "run()" \
-        --fork-url $ETH_RPC_URL
-    CMD
-    
-    output = `#{cmd} 2>&1`
-    
-    unless $?.success?
-      raise "Failed to generate genesis file: #{output}"
-    end
-    
-    # The script generates genesis.json in the root contracts directory
-    genesis_source = contracts_dir.join('genesis.json')
-    
-    # Copy to tmp directory with appropriate name
-    genesis_filename = ChainIdManager.on_mainnet? ? "ethscriptions-mainnet.json" : "ethscriptions-sepolia.json"
-    genesis_dest = Rails.root.join('tmp', genesis_filename)
-    
-    FileUtils.cp(genesis_source, genesis_dest)
+    generator = GenesisGenerator.new
+    generator.run!
   end
   
   def teardown_rspec_geth

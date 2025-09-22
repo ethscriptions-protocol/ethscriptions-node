@@ -141,6 +141,8 @@ class GenesisGenerator
     puts
     puts "To initialize Geth with this genesis:"
     puts "  geth init --datadir ./datadir genesis.json"
+    
+    output_file
   end
 end
 
