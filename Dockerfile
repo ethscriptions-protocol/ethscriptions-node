@@ -57,7 +57,10 @@ COPY --from=build /rails /rails
 
 # Set up non-root user
 RUN useradd rails --create-home --shell /bin/bash && \
-    chown -R rails:rails log tmp
+    chown -R rails:rails log tmp storage
 USER rails:rails
+
+# Set up databases (creates SQLite files even when validation disabled)
+RUN DISABLE_DATABASE_ENVIRONMENT_CHECK=1 bundle exec rails db:setup db:schema:load:queue
 
 CMD ["bundle", "exec", "clockwork", "config/derive_ethscriptions_blocks.rb"]
