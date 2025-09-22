@@ -1,10 +1,13 @@
 class ValidationResult < ApplicationRecord
   self.primary_key = 'l1_block'
-
+  
   scope :successful, -> { where(success: true) }
   scope :failed, -> { where(success: false) }
   scope :recent, -> { order(validated_at: :desc) }
   scope :in_range, ->(start_block, end_block) { where(l1_block: start_block..end_block) }
+  scope :with_activity, -> {
+    where("JSON_EXTRACT(validation_stats, '$.validation_details.expected_creations') > 0 OR JSON_EXTRACT(validation_stats, '$.validation_details.expected_transfers') > 0 OR JSON_EXTRACT(validation_stats, '$.validation_details.storage_checks') > 0")
+  }
 
   # Class methods for validation management
   def self.last_validated_block
@@ -56,11 +59,27 @@ class ValidationResult < ApplicationRecord
       validator = BlockValidator.new
       block_result = validator.validate_l1_block(l1_block_number, l2_block_hashes)
 
-      # Store validation result using create_or_find_by for concurrency safety
+      # Store comprehensive validation result with full debugging data
       validation_result = create_or_find_by(l1_block: l1_block_number) do |vr|
         vr.success = block_result.success
-        vr.error_details = block_result.errors.to_json
-        vr.validation_stats = block_result.stats.to_json
+        vr.error_details = block_result.errors
+        vr.validation_stats = {
+          # Basic stats
+          success: block_result.success,
+          l1_block: l1_block_number,
+          l2_blocks: l2_block_hashes,
+          validated_at: Time.current,
+
+          # Detailed comparison data
+          validation_details: block_result.stats,
+
+          # Store the raw data for debugging
+          raw_api_data: block_result.respond_to?(:api_data) ? block_result.api_data : nil,
+          raw_l2_events: block_result.respond_to?(:l2_events) ? block_result.l2_events : nil,
+
+          # Timing info
+          validation_duration: Time.current - Time.current
+        }
         vr.validated_at = Time.current
       end
 
@@ -74,8 +93,8 @@ class ValidationResult < ApplicationRecord
       # Record the validation error
       error_result = create_or_find_by(l1_block: l1_block_number) do |vr|
         vr.success = false
-        vr.error_details = [e.message].to_json
-        vr.validation_stats = { exception: true, exception_class: e.class.name }.to_json
+        vr.error_details = [e.message]
+        vr.validation_stats = { exception: true, exception_class: e.class.name }
         vr.validated_at = Time.current
       end
 
@@ -85,29 +104,17 @@ class ValidationResult < ApplicationRecord
   end
 
   # Instance methods
-  def parsed_errors
-    return [] unless error_details.present?
-    JSON.parse(error_details) rescue []
-  end
-
-  def parsed_stats
-    return {} unless validation_stats.present?
-    JSON.parse(validation_stats) rescue {}
-  end
-
   def failure_summary
     return nil if success?
+    return "No error details" if error_details.blank?
 
-    error_list = parsed_errors
-    return "No error details" if error_list.empty?
-
-    # Return first few errors for summary
-    error_list.first(3).join('; ')
+    # error_details is automatically parsed as Array
+    error_details.first(3).join('; ')
   end
 
   def log_summary(logger = Rails.logger)
     if success?
-      stats_data = parsed_stats
+      stats_data = validation_stats || {}
       if stats_data['actual_creations'].to_i > 0 || stats_data['actual_transfers'].to_i > 0 || stats_data['storage_checks'].to_i > 0
         logger.info "✅ Block #{l1_block} validated successfully: " \
                     "#{stats_data['actual_creations']} creations, " \
@@ -115,9 +122,10 @@ class ValidationResult < ApplicationRecord
                     "#{stats_data['storage_checks']} storage checks"
       end
     else
-      logger.error "❌ Block #{l1_block} validation failed with #{parsed_errors.size} errors:"
-      parsed_errors.first(5).each { |e| logger.error "  - #{e}" }
-      logger.error "  ... and #{parsed_errors.size - 5} more errors" if parsed_errors.size > 5
+      errors = error_details || []
+      logger.error "❌ Block #{l1_block} validation failed with #{errors.size} errors:"
+      errors.first(5).each { |e| logger.error "  - #{e}" }
+      logger.error "  ... and #{errors.size - 5} more errors" if errors.size > 5
     end
   end
 end

@@ -46,7 +46,7 @@ class GapDetectionJob < ApplicationJob
   private
 
   def validation_enabled?
-    ENV.fetch('VALIDATION_ENABLED', 'false').casecmp?('true')
+    ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
   end
 
   def get_import_range

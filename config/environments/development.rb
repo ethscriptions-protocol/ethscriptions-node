@@ -25,7 +25,12 @@ Rails.application.configure do
   config.logger = ActiveSupport::Logger.new(STDOUT)
   config.logger.formatter = Logger::Formatter.new
   config.log_level = :info
-  config.solid_queue.logger = ActiveSupport::Logger.new(STDOUT)
+
+  # Reduce ActiveJob/SolidQueue log noise
+  config.active_job.logger = Logger.new(STDOUT)
+  config.active_job.logger.level = Logger::WARN
+  config.solid_queue.logger = Logger.new(STDOUT)
+  config.solid_queue.logger.level = Logger::WARN
 
   # Use Solid Queue in Development.
   config.active_job.queue_adapter = :solid_queue

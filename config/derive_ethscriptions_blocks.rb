@@ -84,7 +84,7 @@ puts "  L1 RPC: #{ENV['L1_RPC_URL'][0..30]}..."
 puts "  Geth RPC: #{ENV['NON_AUTH_GETH_RPC_URL']}"
 puts "  L1 Prefetch Threads: #{ENV['L1_PREFETCH_THREADS']}"
 puts "  Job Concurrency: #{ENV['JOB_CONCURRENCY']}"
-puts "  Validation: #{ENV['VALIDATION_ENABLED'] == 'true' ? 'ENABLED' : 'disabled'}"
+puts "  Validation: #{ENV.fetch('VALIDATION_ENABLED').casecmp?('true') ? 'ENABLED' : 'disabled'}"
 puts "  Import Interval: #{ENV['IMPORT_INTERVAL']}s"
 puts "="*80
 
@@ -150,7 +150,7 @@ module Clockwork
           puts "[#{Time.now}] Imported #{blocks_imported} blocks (#{initial_block + 1} to #{final_block})"
 
           # Show validation summary if enabled
-          if ENV['VALIDATION_ENABLED'] == 'true'
+          if ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
             puts importer.validation_summary
           end
         else
@@ -180,6 +180,12 @@ module Clockwork
         # Reinitialize importer to handle reorg
         importer = EthBlockImporter.new
         puts "[#{Time.now}] Importer reinitialized. Continuing from block #{importer.current_max_eth_block_number}"
+
+      rescue EthBlockImporter::ValidationFailureError => e
+        Rails.logger.fatal "[#{Time.now}] 🛑 VALIDATION FAILURE: #{e.message}"
+        puts "[#{Time.now}] 🛑 VALIDATION FAILURE - System stopping for investigation"
+        puts "[#{Time.now}] Fix the validation issue and restart manually"
+        exit 1
 
       rescue => e
         Rails.logger.error "Import error: #{e.class} - #{e.message}"

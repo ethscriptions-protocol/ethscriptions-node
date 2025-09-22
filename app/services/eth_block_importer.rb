@@ -6,6 +6,8 @@ class EthBlockImporter
   class BlockNotReadyToImportError < StandardError; end
   # Raised when a re-org is detected (parent hash mismatch)
   class ReorgDetectedError < StandardError; end
+  # Raised when validation failure is detected (should stop system permanently)
+  class ValidationFailureError < StandardError; end
   
   attr_accessor :ethscriptions_block_cache, :ethereum_client, :eth_block_cache, :geth_driver
 
@@ -24,12 +26,17 @@ class EthBlockImporter
       threads: ENV.fetch('L1_PREFETCH_THREADS', Rails.env.test? ? 2 : 2).to_i
     )
 
-    logger.info "EthBlockImporter initialized - Validation: #{ENV.fetch('VALIDATION_ENABLED', 'false').casecmp?('true') ? 'ENABLED' : 'disabled'}"
+    logger.info "EthBlockImporter initialized - Validation: #{ENV.fetch('VALIDATION_ENABLED').casecmp?('true') ? 'ENABLED' : 'disabled'}"
 
     MemeryExtensions.clear_all_caches!
 
     set_eth_block_starting_points
     populate_ethscriptions_block_cache
+
+    # Clean up any stale validation records ahead of our starting position
+    if ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
+      cleanup_stale_validation_records
+    end
 
     unless Rails.env.test?
       max_block = current_max_eth_block_number
@@ -143,8 +150,8 @@ class EthBlockImporter
       
       l2_block = GethDriver.client.call("eth_getBlockByNumber", ["0x#{l2_candidate.to_s(16)}", false])
       
-      # Check if hashes match AND we're at least 31 blocks in the past
-      retry_offset = 31  # batch_size + 1
+      # Start from finalization block
+      retry_offset = 63
       blocks_behind = latest_l2_block_number - l2_candidate
 
       if l1_hash == l1_attributes[:hash] && l1_attributes[:number] == l1_candidate && blocks_behind >= retry_offset
@@ -190,7 +197,7 @@ class EthBlockImporter
         if validation_failure_detected?
           failed_block = get_validation_failure_block
           logger.error "Import stopped due to validation failure at block #{failed_block}"
-          raise "Validation failure detected at block #{failed_block}"
+          raise ValidationFailureError.new("Validation failure detected at block #{failed_block}")
         end
 
         block_number = next_block_to_import
@@ -396,11 +403,27 @@ class EthBlockImporter
   end
 
   def validation_failure_detected?
-    ValidationResult.failed.exists?
+    # Only consider failures BEHIND current import position as critical
+    current_position = current_max_eth_block_number
+    ValidationResult.failed.where('l1_block <= ?', current_position).exists?
   end
 
   def get_validation_failure_block
-    ValidationResult.failed.order(:l1_block).first&.l1_block
+    # Get the earliest failed block that's behind current import
+    current_position = current_max_eth_block_number
+    ValidationResult.failed.where('l1_block <= ?', current_position).order(:l1_block).first&.l1_block
+  end
+
+  def cleanup_stale_validation_records
+    # Remove validation records ahead of our starting position
+    # These are from previous runs and may be stale due to reorgs
+    starting_position = current_max_eth_block_number
+    stale_count = ValidationResult.where('l1_block > ?', starting_position).count
+
+    if stale_count > 0
+      logger.info "Cleaning up #{stale_count} stale validation records ahead of block #{starting_position}"
+      ValidationResult.where('l1_block > ?', starting_position).delete_all
+    end
   end
 
   def report_import_stats(blocks_imported_count:, stats_start_time:, stats_start_block:,
@@ -427,7 +450,7 @@ class EthBlockImporter
     logger.info "📊 Avg Gas/Block: #{average_gas_per_block_millions}M"
 
     # Detailed validation stats from database
-    if ENV.fetch('VALIDATION_ENABLED', 'false').casecmp?('true')
+    if ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
       last_validated = ValidationResult.last_validated_block || 0
       validation_lag = current_block - last_validated
 
@@ -471,12 +494,10 @@ class EthBlockImporter
     logger.info "=" * 70
   end
 
-  # Validation now handled by SolidQueue jobs
-
   public
 
   def validation_summary
-    return nil unless ENV.fetch('VALIDATION_ENABLED', 'false').casecmp?('true')
+    return nil unless ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
 
     stats = ValidationResult.validation_stats(since: 1.hour.ago)
     return "No validations completed" if stats[:total] == 0

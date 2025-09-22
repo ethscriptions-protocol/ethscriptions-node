@@ -7,8 +7,15 @@ class BlockValidator
     @storage_checks_performed = Concurrent::AtomicFixnum.new(0)
     @incomplete_actual = false
 
+    # Debugging instrumentation - capture actual validation results
+    @debug_data = {
+      creation_results: [],
+      transfer_results: [],
+      storage_results: []
+    }
+
     # Thread pool for storage verification
-    storage_threads = ENV.fetch('STORAGE_VERIFICATION_THREADS', '20').to_i
+    storage_threads = ENV.fetch('STORAGE_VERIFICATION_THREADS', '2').to_i
     @storage_executor = Concurrent::ThreadPoolExecutor.new(
       min_threads: 1,
       max_threads: storage_threads,
@@ -19,16 +26,17 @@ class BlockValidator
 
   def validate_l1_block(l1_block_number, l2_block_hashes)
     reset_validation_state
+    validation_start_time = Time.current
 
-    # Rails.logger.info "Validating L1 block #{l1_block_number} with #{l2_block_hashes.size} L2 blocks"
+    Rails.logger.debug "Validating L1 block #{l1_block_number} with #{l2_block_hashes.size} L2 blocks"
 
-    # Use prefetched data if provided, otherwise fetch from API
+    # Fetch expected data from API
     expected = fetch_expected_data(l1_block_number)
 
     # Get actual data from L2 events
     actual_events = aggregate_l2_events(l2_block_hashes)
 
-    # Historical block tag for reads as-of this L1 block’s L2 application
+    # Historical block tag for reads as-of this L1 block's L2 application
     # Use EIP-1898 with blockHash for reorg-safety
     historical_block_tag = l2_block_hashes.any? ? { blockHash: l2_block_hashes.last } : 'latest'
 
@@ -38,15 +46,17 @@ class BlockValidator
     # Verify storage state
     verify_storage_state(expected, l1_block_number, historical_block_tag)
 
-    # Build result
+    # Build comprehensive result with full debugging data
     success = @errors.empty? && !@incomplete_actual && !expected[:api_unavailable]
+    validation_duration = Time.current - validation_start_time
 
-    # Return a simple struct with validation results
+    # Return comprehensive debugging information
     result = OpenStruct.new(
       success: success,
       errors: @errors,
       l1_block: l1_block_number,
       stats: {
+        # Basic validation stats
         expected_creations: Array(expected[:creations]).size,
         actual_creations: Array(actual_events[:creations]).size,
         expected_transfers: Array(expected[:transfers]).size,
@@ -54,10 +64,46 @@ class BlockValidator
         storage_checks: @storage_checks_performed.value,
         errors_count: @errors.size,
         api_unavailable: expected[:api_unavailable] ? true : false,
-        incomplete_actual: @incomplete_actual
+        incomplete_actual: @incomplete_actual,
+
+        # L1 to L2 block mapping
+        l1_to_l2_mapping: {
+          l1_block: l1_block_number,
+          l2_blocks: l2_block_hashes.map.with_index { |hash, i|
+            {
+              index: i,
+              hash: hash,
+              block_tag: i == l2_block_hashes.size - 1 ? historical_block_tag : { blockHash: hash }
+            }
+          }
+        },
+
+        # Complete raw data for debugging (sanitized for JSON storage)
+        raw_expected_data: {
+          creations: sanitize_for_json(expected[:creations] || []),
+          transfers: sanitize_for_json(expected[:transfers] || []),
+          api_available: !expected[:api_unavailable],
+          api_error: expected[:api_error]
+        },
+
+        raw_actual_data: {
+          creations: sanitize_for_json(actual_events[:creations] || []),
+          transfers: sanitize_for_json(actual_events[:transfers] || []),
+          l2_events_source: "geth_block_receipts"
+        },
+
+        # Actual comparisons performed during validation (not recreated)
+        actual_comparisons: @debug_data,
+
+        # Performance and metadata
+        validation_timing: {
+          duration_ms: (validation_duration * 1000).round(2),
+          started_at: validation_start_time.iso8601,
+          completed_at: Time.current.iso8601
+        }
       }
     )
-    binding.irb if ENV['DEBUG'] == '1' && result.errors.any?
+
     result
   end
 
@@ -67,6 +113,14 @@ class BlockValidator
     @errors = Concurrent::Array.new
     @storage_checks_performed = Concurrent::AtomicFixnum.new(0)
     @incomplete_actual = false
+
+    # Reset debugging instrumentation
+    @debug_data = {
+      creation_comparisons: [],
+      transfer_comparisons: [],
+      storage_checks: [],
+      event_comparisons: []
+    }
   end
 
   def load_genesis_transaction_hashes
@@ -100,7 +154,6 @@ class BlockValidator
         if receipts.nil?
           @errors << "No receipts returned for L2 block #{block_hash}"
           @incomplete_actual = true
-          binding.irb if ENV['DEBUG'] == '1'
           raise "No receipts returned for L2 block #{block_hash}"
         end
 
@@ -110,7 +163,6 @@ class BlockValidator
       rescue => e
         @errors << "Failed to get receipts for block #{block_hash}: #{e.message}"
         @incomplete_actual = true
-        binding.irb if ENV['DEBUG'] == '1'
         raise "Failed to get receipts for block #{block_hash}: #{e.message}"
       end
     end
@@ -310,7 +362,6 @@ class BlockValidator
     begin
       stored = StorageReader.get_ethscription_with_content(tx_hash, block_tag: block_tag)
     rescue => e
-      binding.irb if ENV['DEBUG'] == '1'
       @errors << "Ethscription #{tx_hash} not found in contract storage: #{e.message}"
       @storage_checks_performed.increment
       return
@@ -323,32 +374,76 @@ class BlockValidator
       return
     end
 
-    # Verify creator
-    if !addresses_match?(stored[:creator], creation[:creator])
+    # Verify creator (with instrumentation)
+    creator_match = addresses_match?(stored[:creator], creation[:creator])
+    creator_check = record_comparison(
+      "storage_creator_check",
+      tx_hash,
+      creation[:creator],
+      stored[:creator],
+      creator_match,
+      { l1_block: l1_block_num }
+    )
+
+    if !creator_match
       @errors << "Storage creator mismatch for #{tx_hash}: stored=#{stored[:creator]}, expected=#{creation[:creator]}"
     end
 
-    # Verify initial owner
-    if !addresses_match?(stored[:initial_owner], creation[:initial_owner])
+    # Verify initial owner (with instrumentation)
+    initial_owner_match = addresses_match?(stored[:initial_owner], creation[:initial_owner])
+    initial_owner_check = record_comparison(
+      "storage_initial_owner_check",
+      tx_hash,
+      creation[:initial_owner],
+      stored[:initial_owner],
+      initial_owner_match,
+      { l1_block: l1_block_num }
+    )
+
+    if !initial_owner_match
       @errors << "Storage initial_owner mismatch for #{tx_hash}: stored=#{stored[:initial_owner]}, expected=#{creation[:initial_owner]}"
     end
 
-    # Verify L1 block number
-    if stored[:l1_block_number] != l1_block_num
+    # Verify L1 block number (with instrumentation)
+    l1_block_match = stored[:l1_block_number] == l1_block_num
+    l1_block_check = record_comparison(
+      "storage_l1_block_check",
+      tx_hash,
+      l1_block_num,
+      stored[:l1_block_number],
+      l1_block_match,
+      { l1_block: l1_block_num }
+    )
+
+    if !l1_block_match
       @errors << "Storage L1 block mismatch for #{tx_hash}: stored=#{stored[:l1_block_number]}, expected=#{l1_block_num}"
     end
 
-    # Verify content - compare the actual content bytes
+    # Verify content - API client already decoded b64_content to content field (with instrumentation)
     if creation[:content]
-      # API provides decoded content, contract provides raw bytes
-      if stored[:content] != creation[:content]
+      content_match = stored[:content] == creation[:content]
+
+      # Store first 50 chars for debugging (full comparison still done)
+      # Handle binary content by encoding as base64 for JSON serialization
+      expected_preview = safe_content_preview(creation[:content])
+      actual_preview = safe_content_preview(stored[:content])
+
+      content_check = record_comparison(
+        "storage_content_check",
+        tx_hash,
+        expected_preview,
+        actual_preview,
+        content_match,
+        {
+          l1_block: l1_block_num,
+          expected_length: creation[:content]&.length,
+          actual_length: stored[:content]&.length,
+          b64_content_preview: creation[:b64_content]&.[](0..100)
+        }
+      )
+
+      if !content_match
         @errors << "Storage content mismatch for #{tx_hash}: stored length=#{stored[:content]&.length}, expected length=#{creation[:content]&.length}"
-      end
-    elsif creation[:b64_content]
-      # If we only have b64_content, decode it and compare
-      expected_content = Base64.decode64(creation[:b64_content])
-      if stored[:content] != expected_content
-        @errors << "Storage content mismatch for #{tx_hash}: stored length=#{stored[:content]&.length}, expected length=#{expected_content&.length}"
       end
     end
 
@@ -362,30 +457,56 @@ class BlockValidator
       end
     end
 
-    # Verify content_sha - always present in API, must match exactly
+    # Verify content_sha - always present in API, must match exactly (with instrumentation)
     stored_sha = stored[:content_sha]&.downcase&.delete_prefix('0x')
     expected_sha = creation[:content_sha].downcase.delete_prefix('0x')
-    if stored_sha != expected_sha
+    content_sha_match = stored_sha == expected_sha
+    content_sha_check = record_comparison(
+      "storage_content_sha_check",
+      tx_hash,
+      expected_sha,
+      stored_sha,
+      content_sha_match,
+      { l1_block: l1_block_num }
+    )
+
+    if !content_sha_match
       @errors << "Storage content_sha mismatch for #{tx_hash}: stored=#{stored[:content_sha]}, expected=#{creation[:content_sha]}"
     end
 
-    # Verify mimetype - normalize to binary for comparison (Eth::Abi returns binary for non-ASCII)
-    unless binary_equal?(stored[:mimetype], creation[:mimetype])
+    # Verify mimetype - normalize to binary for comparison (with instrumentation)
+    mimetype_match = binary_equal?(stored[:mimetype], creation[:mimetype])
+    mimetype_check = record_comparison(
+      "storage_mimetype_check",
+      tx_hash,
+      creation[:mimetype],
+      stored[:mimetype],
+      mimetype_match,
+      { l1_block: l1_block_num }
+    )
+
+    if !mimetype_match
       @errors << "Storage mimetype mismatch for #{tx_hash}: stored=#{stored[:mimetype]}, expected=#{creation[:mimetype]}"
     end
 
-    # Verify media_type - normalize to binary for comparison
-    unless binary_equal?(stored[:media_type], creation[:media_type])
+    # Verify media_type - normalize to binary for comparison (with instrumentation)
+    media_type_match = binary_equal?(stored[:media_type], creation[:media_type])
+    record_comparison("storage_media_type_check", tx_hash, creation[:media_type], stored[:media_type], media_type_match, { l1_block: l1_block_num })
+    if !media_type_match
       @errors << "Storage media_type mismatch for #{tx_hash}: stored=#{stored[:media_type]}, expected=#{creation[:media_type]}"
     end
 
-    # Verify mime_subtype - normalize to binary for comparison
-    unless binary_equal?(stored[:mime_subtype], creation[:mime_subtype])
+    # Verify mime_subtype - normalize to binary for comparison (with instrumentation)
+    mime_subtype_match = binary_equal?(stored[:mime_subtype], creation[:mime_subtype])
+    record_comparison("storage_mime_subtype_check", tx_hash, creation[:mime_subtype], stored[:mime_subtype], mime_subtype_match, { l1_block: l1_block_num })
+    if !mime_subtype_match
       @errors << "Storage mime_subtype mismatch for #{tx_hash}: stored=#{stored[:mime_subtype]}, expected=#{creation[:mime_subtype]}"
     end
 
-    # Verify esip6 flag - must match exactly (API returns boolean)
-    if stored[:esip6] != creation[:esip6]
+    # Verify esip6 flag - must match exactly (with instrumentation)
+    esip6_match = stored[:esip6] == creation[:esip6]
+    record_comparison("storage_esip6_check", tx_hash, creation[:esip6], stored[:esip6], esip6_match, { l1_block: l1_block_num })
+    if !esip6_match
       @errors << "Storage esip6 mismatch for #{tx_hash}: stored=#{stored[:esip6]}, expected=#{creation[:esip6]}"
     end
   end
@@ -414,7 +535,6 @@ class BlockValidator
       @storage_checks_performed.increment
 
       if actual_owner.nil?
-        binding.irb if ENV['DEBUG'] == '1'
         @errors << "Could not verify owner of token #{token_id}"
         next
       end
@@ -428,6 +548,59 @@ class BlockValidator
   def addresses_match?(addr1, addr2)
     return false if addr1.nil? || addr2.nil?
     addr1.downcase == addr2.downcase
+  end
+
+  # Instrumentation helper to record comparison results
+  def record_comparison(type, identifier, expected, actual, match_result, extra_data = {})
+    comparison = {
+      type: type,
+      identifier: identifier,
+      expected: expected,
+      actual: actual,
+      match: match_result,
+      timestamp: Time.current.iso8601
+    }.merge(extra_data)
+
+    case type
+    when /creation/
+      @debug_data[:creation_comparisons] << comparison
+    when /transfer/
+      @debug_data[:transfer_comparisons] << comparison
+    when /storage/
+      @debug_data[:storage_checks] << comparison
+    else
+      @debug_data[:event_comparisons] << comparison
+    end
+
+    comparison
+  end
+
+  # Safely create content preview for JSON serialization
+  def safe_content_preview(content, length: 50)
+    return "" if content.nil?
+
+    # Use inspect to safely handle any encoding/binary data
+    preview = content[0..length].inspect
+    preview + (content.length > length ? "..." : "")
+  end
+
+  # Sanitize data structures for JSON serialization
+  def sanitize_for_json(data)
+    case data
+    when Array
+      data.map { |item| sanitize_for_json(item) }
+    when Hash
+      data.transform_values { |value| sanitize_for_json(value) }
+    when String
+      # Only use inspect if string is not safe UTF-8
+      if data.valid_encoding? && (data.encoding == Encoding::UTF_8 || data.ascii_only?)
+        data  # Safe to store as-is
+      else
+        data.inspect  # Binary or invalid encoding - use inspect for safety
+      end
+    else
+      data
+    end
   end
 end
 
