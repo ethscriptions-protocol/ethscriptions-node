@@ -264,6 +264,10 @@ contract L2Genesis is Script {
         uint256 index,
         GenesisEthscriptions genesisContract
     ) internal {
+        if (!vm.envOr("PERFORM_GENESIS_IMPORT", true)) {
+            return;
+        }
+        
         string memory basePath = string.concat(".ethscriptions[", vm.toString(index), "]");
         
         // Parse all data needed

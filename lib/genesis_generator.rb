@@ -86,8 +86,10 @@ class GenesisGenerator
       raise "L2Genesis script not found at #{script_path}"
     end
     
+    should_perform_genesis_import = ENV.fetch('PERFORM_GENESIS_IMPORT', 'true') == 'true'
+    
     # Build the forge script command
-    cmd = "cd #{contracts_dir} && forge script '#{script_path}:L2Genesis'"
+    cmd = "cd #{contracts_dir} && PERFORM_GENESIS_IMPORT=#{should_perform_genesis_import} forge script '#{script_path}:L2Genesis'"
     
     puts "Executing: #{cmd}"
     puts

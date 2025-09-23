@@ -80,7 +80,7 @@ class EthscriptionTransactionBuilder
         )
 
         @transactions << transaction if transaction.valid_create?
-      rescue Eth::Abi::DecodingError => e
+      rescue Eth::Abi::DecodingError, RangeError => e
         Rails.logger.error "Failed to decode create event: #{e.message}"
         next
       end
@@ -131,7 +131,7 @@ class EthscriptionTransactionBuilder
         when ESIP2_SIG
           handle_esip2_event(log) if SysConfig.esip2_enabled?(@eth_tx.block_number)
         end
-      rescue Eth::Abi::DecodingError => e
+      rescue Eth::Abi::DecodingError, RangeError => e
         Rails.logger.error "Failed to decode transfer event: #{e.message}"
         next
       end

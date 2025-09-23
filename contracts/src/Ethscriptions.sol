@@ -423,7 +423,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     function ownerOf(bytes32 transactionHash) external view requireExists(transactionHash) returns (address) {
         Ethscription storage etsc = ethscriptions[transactionHash];
         uint256 tokenId = etsc.ethscriptionNumber;
-        // This will revert if the token is burned (has no owner)
+        
         return ownerOf(tokenId);
     }
 
