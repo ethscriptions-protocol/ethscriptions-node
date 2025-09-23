@@ -56,6 +56,10 @@ class EthscriptionsApiClient
     end
 
     def fetch_json(path, params = {})
+      # Add API key to query params if provided
+      api_key = ENV['ETHSCRIPTIONS_API_KEY']
+      params = params.merge(api_key: api_key) if api_key.present?
+
       uri = URI("#{BASE_URL}#{path}")
       uri.query = URI.encode_www_form(params) if params.any?
 

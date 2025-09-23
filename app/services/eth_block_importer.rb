@@ -150,8 +150,8 @@ class EthBlockImporter
       
       l2_block = GethDriver.client.call("eth_getBlockByNumber", ["0x#{l2_candidate.to_s(16)}", false])
       
-      # Start from finalization block
-      retry_offset = 63
+      # Start from finalization block (use smaller offset for tests)
+      retry_offset = Rails.env.test? ? 0 : 63
       blocks_behind = latest_l2_block_number - l2_candidate
 
       if l1_hash == l1_attributes[:hash] && l1_attributes[:number] == l1_candidate && blocks_behind >= retry_offset

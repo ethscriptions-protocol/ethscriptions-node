@@ -2,15 +2,6 @@ class BlockValidator
   attr_reader :errors, :stats
 
   def initialize
-    # Initialize thread pool for storage verification
-    storage_threads = ENV.fetch('STORAGE_VERIFICATION_THREADS', '2').to_i
-    @storage_executor = Concurrent::ThreadPoolExecutor.new(
-      min_threads: 1,
-      max_threads: storage_threads,
-      max_queue: storage_threads * 3,
-      fallback_policy: :caller_runs
-    )
-
     # Initialize validation state
     reset_validation_state
   end
@@ -330,15 +321,10 @@ class BlockValidator
   def verify_storage_state(expected_data, l1_block_num, block_tag)
     ImportProfiler.start("storage_verification")
 
-    # Parallel verification using thread pool
-    creation_promises = Array(expected_data[:creations]).map do |creation|
-      Concurrent::Promise.execute(executor: @storage_executor) do
-        verify_ethscription_storage(creation, l1_block_num, block_tag)
-      end
+    # Sequentially verify each creation on the main thread
+    Array(expected_data[:creations]).each do |creation|
+      verify_ethscription_storage(creation, l1_block_num, block_tag)
     end
-
-    # Wait for all creation verifications to complete
-    creation_promises.each(&:value!)
 
     # Verify ownership after transfers
     verify_transfer_ownership(Array(expected_data[:transfers]), block_tag)

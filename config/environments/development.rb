@@ -12,10 +12,10 @@ Rails.application.configure do
   config.eager_load = true
 
   # Show full error reports.
-  config.consider_all_requests_local = true
+  config.consider_all_requests_local = false
 
   # Enable server timing
-  config.server_timing = true
+  config.server_timing = false
   
   # Enable file-based caching for persistent checkpoints
   config.action_controller.perform_caching = true
