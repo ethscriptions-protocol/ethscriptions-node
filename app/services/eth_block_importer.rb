@@ -9,7 +9,7 @@ class EthBlockImporter
   # Raised when validation failure is detected (should stop system permanently)
   class ValidationFailureError < StandardError; end
   
-  attr_accessor :ethscriptions_block_cache, :ethereum_client, :eth_block_cache, :geth_driver
+  attr_accessor :ethscriptions_block_cache, :ethereum_client, :eth_block_cache, :geth_driver, :prefetcher
 
   def initialize
     @ethscriptions_block_cache = {}
