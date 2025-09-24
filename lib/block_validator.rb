@@ -153,7 +153,7 @@ class BlockValidator
         if transient_error?(e)
           raise TransientValidationError, error_msg
         else
-          raise error_msg
+          raise
         end
       end
     end

@@ -79,7 +79,6 @@ class ValidationResult < ApplicationRecord
           success: block_result.success,
           l1_block: l1_block_number,
           l2_blocks: l2_block_hashes,
-          validated_at: Time.current,
 
           # Detailed comparison data
           validation_details: block_result.stats,
@@ -115,8 +114,7 @@ class ValidationResult < ApplicationRecord
         error_details: [e.message],
         validation_stats: {
           exception: true,
-          exception_class: e.class.name,
-          validated_at: Time.current
+          exception_class: e.class.name
         },
         validated_at: Time.current
       )
