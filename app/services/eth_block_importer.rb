@@ -8,6 +8,8 @@ class EthBlockImporter
   class ReorgDetectedError < StandardError; end
   # Raised when validation failure is detected (should stop system permanently)
   class ValidationFailureError < StandardError; end
+  # Raised when validation is too far behind (should wait and retry)
+  class ValidationStalledError < StandardError; end
   
   attr_accessor :ethscriptions_block_cache, :ethereum_client, :eth_block_cache, :geth_driver, :prefetcher
 
@@ -196,11 +198,18 @@ class EthBlockImporter
 
     begin
       loop do
-        # Check for validation failures before importing
-        if validation_failure_detected?
+        # Check for validation failures
+        if real_validation_failure_detected?
           failed_block = get_validation_failure_block
           logger.error "Import stopped due to validation failure at block #{failed_block}"
           raise ValidationFailureError.new("Validation failure detected at block #{failed_block}")
+        end
+
+        # Check if validation is stalled
+        if validation_stalled?
+          current_position = current_max_eth_block_number
+          logger.warn "Import paused - validation is behind (current: #{current_position})"
+          raise ValidationStalledError.new("Validation stalled - waiting for validation to catch up")
         end
 
         block_number = next_block_to_import
@@ -409,17 +418,41 @@ class EthBlockImporter
     @geth_driver
   end
 
-  def validation_failure_detected?
-    # Only consider failures BEHIND current import position as critical
+  def get_validation_failure_block
+    # Get the earliest failed block that's behind current import (for real failures)
+    current_position = current_max_eth_block_number
+    ValidationResult.failed.where('l1_block <= ?', current_position).order(:l1_block).first&.l1_block
+  end
+
+  def real_validation_failure_detected?
+    # Only consider real validation failures BEHIND current import position as critical
     current_position = current_max_eth_block_number
     ValidationResult.failed.where('l1_block <= ?', current_position).exists?
   end
 
-  def get_validation_failure_block
-    # Get the earliest failed block that's behind current import
+  def validation_stalled?
+    return false unless ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
+
     current_position = current_max_eth_block_number
-    ValidationResult.failed.where('l1_block <= ?', current_position).order(:l1_block).first&.l1_block
+    hard_limit = ENV.fetch('VALIDATION_LAG_HARD_LIMIT', 30).to_i
+
+    # Check for validation gaps in recent blocks
+    # This covers BOTH sequential lag and scattered gaps
+    check_range_start = [current_position - hard_limit + 1, 1].max  # Last N blocks
+    check_range_end = current_position
+
+    # Count ALL missing validations in critical range (includes both gaps and lag)
+    gap_count = ValidationResult.validation_gap_count(check_range_start, check_range_end)
+
+    if gap_count >= hard_limit
+      Rails.logger.error "Too many validation gaps: #{gap_count} unvalidated blocks in range #{check_range_start}-#{check_range_end} (limit: #{hard_limit})"
+      return true
+    end
+
+    false
   end
+
+  public
 
   def cleanup_stale_validation_records
     # Remove validation records AND pending jobs ahead of our starting position
