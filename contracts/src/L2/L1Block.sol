@@ -69,10 +69,6 @@ contract L1Block {
     ///   8. _hash               L1 blockhash.
     ///   9. _batcherHash        Versioned hash to authenticate batcher by.
     function setL1BlockValuesEcotone() external {
-        // Flush all queued ethscription proofs before updating to new block
-        // Each proof includes its own block number and timestamp from when it was queued
-        IEthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER).flushAllProofs();
-
         address depositor = DEPOSITOR_ACCOUNT();
         assembly {
             // Revert if the caller is not the depositor account.
@@ -89,5 +85,9 @@ contract L1Block {
             sstore(hash.slot, calldataload(100)) // bytes32
             sstore(batcherHash.slot, calldataload(132)) // bytes32
         }
+
+        // Flush all queued ethscription proofs after updating block values
+        // Each proof includes its own block number and timestamp from when it was queued
+        IEthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER).flushAllProofs();
     }
 }

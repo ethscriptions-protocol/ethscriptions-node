@@ -2,9 +2,8 @@
 pragma solidity 0.8.24;
 
 import "./Ethscriptions.sol";
-import "./TokenManager.sol";
-import "./EthscriptionsERC20.sol";
 import "./L2/L2ToL1MessagePasser.sol";
+import "./L2/L1Block.sol";
 import "./libraries/Predeploys.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
@@ -16,8 +15,10 @@ contract EthscriptionsProver {
 
     /// @notice Info stored when an ethscription is queued for proving
     struct QueuedProof {
-        uint256 blockNumber;
-        uint256 blockTimestamp;
+        uint256 l2BlockNumber;
+        uint256 l2BlockTimestamp;
+        bytes32 l1BlockHash;
+        uint256 l1BlockNumber;
     }
 
     /// @notice Set of all ethscription transaction hashes queued for proving
@@ -35,83 +36,29 @@ contract EthscriptionsProver {
     /// @notice The Ethscriptions contract (pre-deployed at known address)
     Ethscriptions public constant ethscriptions = Ethscriptions(Predeploys.ETHSCRIPTIONS);
     
-    /// @notice The TokenManager contract (pre-deployed at known address)
-    TokenManager public constant tokenManager = TokenManager(Predeploys.TOKEN_MANAGER);
-    
-    /// @notice Struct for token balance proof data
-    struct TokenBalanceProof {
-        address holder;
-        string protocol;
-        string tick;
-        uint256 balance;
-        uint256 l2BlockNumber;
-        uint256 l2Timestamp;
-        // TODO: Add l1BlockNumber once we have L2->L1 block mapping
-    }
-    
     /// @notice Struct for ethscription data proof
     struct EthscriptionDataProof {
         bytes32 ethscriptionTxHash;
         bytes32 contentSha;
+        bytes32 contentUriHash;
         address creator;
         address currentOwner;
         address previousOwner;
         uint256 ethscriptionNumber;
-        bool isToken;
-        uint256 tokenAmount;
+        bool esip6;
+        bytes32 l1BlockHash;
+        uint256 l1BlockNumber;
         uint256 l2BlockNumber;
         uint256 l2Timestamp;
-        // TODO: Add l1BlockNumber once we have L2->L1 block mapping
     }
     
     /// @notice Events for tracking proofs
-    event TokenBalanceProofSent(
-        address indexed holder,
-        string tick,
-        uint256 indexed l2BlockNumber,
-        uint256 l2Timestamp
-    );
-    
     event EthscriptionDataProofSent(
         bytes32 indexed ethscriptionTxHash,
         uint256 indexed l2BlockNumber,
         uint256 l2Timestamp
     );
 
-    /// @notice Emitted when a batch of proofs is flushed
-    event ProofBatchFlushed(uint256 count, uint256 blockNumber);
-    
-    /// @notice Prove token balance for an address
-    /// @param holder The address to prove balance for
-    /// @param deployTxHash The deploy transaction hash (identifies the token type)
-    function proveTokenBalance(
-        address holder,
-        bytes32 deployTxHash
-    ) external {
-        // Get token info from TokenManager
-        TokenManager.TokenInfo memory tokenInfo = tokenManager.getTokenInfo(deployTxHash);
-        
-        // Get balance
-        EthscriptionsERC20 token = EthscriptionsERC20(tokenInfo.tokenContract);
-        uint256 balance = token.balanceOf(holder);
-        
-        // Create proof struct
-        TokenBalanceProof memory proof = TokenBalanceProof({
-            holder: holder,
-            protocol: tokenInfo.protocol,
-            tick: tokenInfo.tick,
-            balance: balance,
-            l2BlockNumber: block.number,
-            l2Timestamp: block.timestamp
-        });
-        
-        // Encode and send to L1 with zero address and gas (only for state recording)
-        bytes memory proofData = abi.encode(proof);
-        L2_TO_L1_MESSAGE_PASSER.initiateWithdrawal(address(0), 0, proofData);
-        
-        emit TokenBalanceProofSent(holder, tokenInfo.tick, block.number, block.timestamp);
-    }
-    
     /// @notice Queue an ethscription for proving
     /// @dev Only callable by the Ethscriptions contract
     /// @param txHash The transaction hash of the ethscription
@@ -121,9 +68,13 @@ contract EthscriptionsProver {
         // Add to the set (deduplicates automatically)
         if (queuedEthscriptions.add(txHash)) {
             // Only store info if this is the first time we're queueing this txHash
+            // Capture the L1 block hash and number at the time of queuing
+            L1Block l1Block = L1Block(L1_BLOCK);
             queuedProofInfo[txHash] = QueuedProof({
-                blockNumber: block.number,
-                blockTimestamp: block.timestamp
+                l2BlockNumber: block.number,
+                l2BlockTimestamp: block.timestamp,
+                l1BlockHash: l1Block.hash(),
+                l1BlockNumber: l1Block.number()
             });
         }
     }
@@ -140,55 +91,44 @@ contract EthscriptionsProver {
         for (uint256 i = count; i > 0; i--) {
             bytes32 txHash = queuedEthscriptions.at(i - 1);
 
-            // Get the stored proof info to know which block this was from
-            QueuedProof memory proofInfo = queuedProofInfo[txHash];
-
             // Create and send proof for current state with stored block info
-            _createAndSendProof(txHash, proofInfo.blockNumber, proofInfo.blockTimestamp);
+            _createAndSendProof(txHash, queuedProofInfo[txHash]);
 
             // Clean up: remove from set and delete the proof info
             queuedEthscriptions.remove(txHash);
             delete queuedProofInfo[txHash];
         }
-
-        emit ProofBatchFlushed(count, block.number - 1);
     }
 
     /// @notice Internal function to create and send proof for an ethscription
     /// @param ethscriptionTxHash The transaction hash of the ethscription
-    /// @param blockNumber The L2 block number being proved
-    /// @param blockTimestamp The timestamp of the L2 block being proved
-    function _createAndSendProof(bytes32 ethscriptionTxHash, uint256 blockNumber, uint256 blockTimestamp) internal {
+    /// @param proofInfo The queued proof info containing block data
+    function _createAndSendProof(bytes32 ethscriptionTxHash, QueuedProof storage proofInfo) internal {
         // Get ethscription data including previous owner
         Ethscriptions.Ethscription memory etsc = ethscriptions.getEthscription(ethscriptionTxHash);
         address currentOwner = ethscriptions.currentOwner(ethscriptionTxHash);
 
-        // Check if it's a token item
-        bool isToken = tokenManager.isTokenItem(ethscriptionTxHash);
-        uint256 tokenAmount = 0;
-        if (isToken) {
-            tokenAmount = tokenManager.getTokenAmount(ethscriptionTxHash);
-        }
-
-        // Create proof struct with previous owner
+        // Create proof struct with all ethscription data
         EthscriptionDataProof memory proof = EthscriptionDataProof({
             ethscriptionTxHash: ethscriptionTxHash,
             contentSha: etsc.content.contentSha,
+            contentUriHash: etsc.content.contentUriHash,
             creator: etsc.creator,
             currentOwner: currentOwner,
             previousOwner: etsc.previousOwner,
             ethscriptionNumber: etsc.ethscriptionNumber,
-            isToken: isToken,
-            tokenAmount: tokenAmount,
-            l2BlockNumber: blockNumber,
-            l2Timestamp: blockTimestamp
+            esip6: etsc.content.esip6,
+            l1BlockHash: proofInfo.l1BlockHash,
+            l1BlockNumber: proofInfo.l1BlockNumber,
+            l2BlockNumber: proofInfo.l2BlockNumber,
+            l2Timestamp: proofInfo.l2BlockTimestamp
         });
 
         // Encode and send to L1 with zero address and gas (only for state recording)
         bytes memory proofData = abi.encode(proof);
         L2_TO_L1_MESSAGE_PASSER.initiateWithdrawal(address(0), 0, proofData);
 
-        emit EthscriptionDataProofSent(ethscriptionTxHash, blockNumber, blockTimestamp);
+        emit EthscriptionDataProofSent(ethscriptionTxHash, proofInfo.l2BlockNumber, proofInfo.l2BlockTimestamp);
     }
 
 }
