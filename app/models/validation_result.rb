@@ -32,6 +32,14 @@ class ValidationResult < ApplicationRecord
     connection.execute(sql, [start_block, end_block]).map { |row| row['missing_block'] }
   end
 
+  # Faster method that just counts gaps without listing them all
+  def self.validation_gap_count(start_block, end_block)
+    # Count how many blocks are missing in the range
+    expected_count = end_block - start_block + 1
+    validated_count = where(l1_block: start_block..end_block).count
+    expected_count - validated_count
+  end
+
   def self.validation_stats(since: 1.hour.ago)
     results = where('validated_at >= ?', since)
     total = results.count
@@ -60,16 +68,17 @@ class ValidationResult < ApplicationRecord
       start_time = Time.current
       block_result = validator.validate_l1_block(l1_block_number, l2_block_hashes)
 
-      # Store comprehensive validation result with full debugging data
-      validation_result = create_or_find_by(l1_block: l1_block_number) do |vr|
-        vr.success = block_result.success
-        vr.error_details = block_result.errors
-        vr.validation_stats = {
+      # Find or initialize - idempotent for re-runs
+      validation_result = find_or_initialize_by(l1_block: l1_block_number)
+
+      validation_result.assign_attributes(
+        success: block_result.success,
+        error_details: block_result.errors,
+        validation_stats: {
           # Basic stats
           success: block_result.success,
           l1_block: l1_block_number,
           l2_blocks: l2_block_hashes,
-          validated_at: Time.current,
 
           # Detailed comparison data
           validation_details: block_result.stats,
@@ -80,26 +89,41 @@ class ValidationResult < ApplicationRecord
 
           # Timing info
           validation_duration_ms: ((Time.current - start_time) * 1000).round(2)
-        }
-        vr.validated_at = Time.current
-      end
+        },
+        validated_at: Time.current
+      )
+
+      validation_result.save!
 
       # Log the result
       validation_result.log_summary
 
       validation_result
+    rescue BlockValidator::TransientValidationError => e
+      # Don't persist transient errors - let ValidationJob handle retries
+      Rails.logger.debug "ValidationResult: Transient error for block #{l1_block_number}: #{e.message}"
+      raise e
     rescue => e
       Rails.logger.error "ValidationResult: Exception validating block #{l1_block_number}: #{e.message}"
 
-      # Record the validation error
-      error_result = create_or_find_by(l1_block: l1_block_number) do |vr|
-        vr.success = false
-        vr.error_details = [e.message]
-        vr.validation_stats = { exception: true, exception_class: e.class.name }
-        vr.validated_at = Time.current
-      end
+      # Only persist non-transient validation errors - idempotent for re-runs
+      validation_result = find_or_initialize_by(l1_block: l1_block_number)
 
-      error_result.log_summary
+      validation_result.assign_attributes(
+        success: false,
+        error_details: [e.message],
+        validation_stats: {
+          exception: true,
+          exception_class: e.class.name,
+          exception_message: e.message,
+          exception_backtrace: e.backtrace&.first(10)  # Store first 10 lines of backtrace
+        },
+        validated_at: Time.current
+      )
+
+      validation_result.save!
+
+      validation_result.log_summary
       raise e
     end
   end

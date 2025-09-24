@@ -1,6 +1,22 @@
 class EthscriptionsApiClient
   BASE_URL = ENV['ETHSCRIPTIONS_API_BASE_URL'].to_s
 
+  # Single error type for all API issues (after exhausting retries)
+  class ApiUnavailableError < StandardError; end
+
+  # Internal error types used for retry logic
+  class HttpError < StandardError
+    attr_reader :code, :http_message
+
+    def initialize(code, http_message)
+      @code = code
+      @http_message = http_message
+      super("HTTP error: #{code} #{http_message}")
+    end
+  end
+  class ApiError < StandardError; end
+  class NetworkError < StandardError; end
+
   class << self
     def fetch_block_data(block_number)
       creations = fetch_creations(block_number)
@@ -10,9 +26,10 @@ class EthscriptionsApiClient
         creations: normalize_creations(creations),
         transfers: normalize_transfers(transfers)
       }
-    rescue => e
-      Rails.logger.error "Failed to fetch block data for #{block_number}: #{e.message}"
-      raise
+    rescue HttpError, ApiError, NetworkError => e
+      # Wrap all internal errors into a single type for callers
+      Rails.logger.error "API unavailable for block #{block_number} after retries: #{e.message}"
+      raise ApiUnavailableError, "API unavailable after #{ENV.fetch('ETHSCRIPTIONS_API_RETRIES', 7)} retries: #{e.message}"
     end
 
     # private
@@ -63,21 +80,46 @@ class EthscriptionsApiClient
       uri = URI("#{BASE_URL}#{path}")
       uri.query = URI.encode_www_form(params) if params.any?
 
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = uri.scheme == 'https'
-      http.open_timeout = 5
-      http.read_timeout = 10
+      # Use Retriable for automatic retries on transient errors
+      Retriable.retriable(
+        tries: ENV.fetch('ETHSCRIPTIONS_API_RETRIES', 7).to_i,
+        base_interval: 1,
+        max_interval: 32,
+        multiplier: 2,
+        rand_factor: 0.4,
+        on: [Net::ReadTimeout, Net::OpenTimeout, HttpError, NetworkError, ApiError],
+        on_retry: ->(exception, try, elapsed_time, next_interval) {
+          Rails.logger.info "Retrying Ethscriptions API #{path} (attempt #{try}, next delay: #{next_interval.round(2)}s) - #{exception.message}"
+        }
+      ) do
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = uri.scheme == 'https'
 
-      request = Net::HTTP::Get.new(uri)
-      request['Accept'] = 'application/json'
+        request = Net::HTTP::Get.new(uri)
+        request['Accept'] = 'application/json'
 
-      response = http.request(request)
+        begin
+          response = http.request(request)
+        rescue SocketError, Errno::ECONNREFUSED, Errno::ECONNRESET => e
+          # Network-level errors - will be retried
+          raise NetworkError, "Network error: #{e.message}"
+        rescue Net::OpenTimeout, Net::ReadTimeout => e
+          # Timeout errors - will be retried
+          raise NetworkError, "Timeout: #{e.message}"
+        end
 
-      unless response.code == '200'
-        raise "API request failed: #{response.code} - #{response.body}"
+        unless response.code == '200'
+          # HTTP errors - will be retried if in retry list
+          raise HttpError.new(response.code.to_i, response.body)
+        end
+
+        begin
+          JSON.parse(response.body)
+        rescue JSON::ParserError => e
+          # JSON parsing errors (often Cloudflare error pages) - will be retried
+          raise ApiError, "Invalid JSON response: #{e.message}"
+        end
       end
-
-      JSON.parse(response.body)
     end
 
     def normalize_creations(data)
@@ -140,5 +182,6 @@ class EthscriptionsApiClient
         }
       end
     end
+
   end
 end

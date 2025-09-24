@@ -187,6 +187,13 @@ module Clockwork
         puts "[#{Time.now}] Fix the validation issue and restart manually"
         exit 1
 
+      rescue EthBlockImporter::ValidationStalledError => e
+        # Validation is behind - wait longer and keep trying
+        Rails.logger.info "[#{Time.now}] ⏸️  VALIDATION BEHIND: #{e.message}"
+        puts "[#{Time.now}] ⏸️  Validation is behind - waiting #{import_interval * 2}s for validation to catch up..."
+        sleep import_interval * 2  # Wait longer when validation is behind
+        # Don't exit - continue the loop to retry
+
       rescue => e
         Rails.logger.error "Import error: #{e.class} - #{e.message}"
         Rails.logger.error e.backtrace.first(20).join("\n")

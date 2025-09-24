@@ -1,6 +1,9 @@
 class BlockValidator
   attr_reader :errors, :stats
 
+  # Exception for transient errors that should trigger retries
+  class TransientValidationError < StandardError; end
+
   def initialize
     # Initialize validation state
     reset_validation_state
@@ -29,7 +32,7 @@ class BlockValidator
     verify_storage_state(expected, l1_block_number, historical_block_tag)
 
     # Build comprehensive result with full debugging data
-    success = @errors.empty? && !@incomplete_actual && !expected[:api_unavailable]
+    success = @errors.empty?
     validation_duration = Time.current - validation_start_time
 
     # Return comprehensive debugging information
@@ -45,8 +48,6 @@ class BlockValidator
         actual_transfers: Array(actual_events[:transfers]).size,
         storage_checks: @storage_checks_performed.value,
         errors_count: @errors.size,
-        api_unavailable: expected[:api_unavailable] ? true : false,
-        incomplete_actual: @incomplete_actual,
 
         # L1 to L2 block mapping
         l1_to_l2_mapping: {
@@ -64,8 +65,6 @@ class BlockValidator
         raw_expected_data: {
           creations: sanitize_for_json(expected[:creations] || []),
           transfers: sanitize_for_json(expected[:transfers] || []),
-          api_available: !expected[:api_unavailable],
-          api_error: expected[:api_error]
         },
 
         raw_actual_data: {
@@ -94,7 +93,6 @@ class BlockValidator
   def reset_validation_state
     @errors = Concurrent::Array.new
     @storage_checks_performed = Concurrent::AtomicFixnum.new(0)
-    @incomplete_actual = false
 
     # Reset debugging instrumentation
     @debug_data = {
@@ -119,10 +117,15 @@ class BlockValidator
 
   def fetch_expected_data(l1_block_number)
     EthscriptionsApiClient.fetch_block_data(l1_block_number)
+  rescue EthscriptionsApiClient::ApiUnavailableError => e
+    # API unavailable after exhausting all retries - this is an infrastructure issue
+    Rails.logger.warn "API unavailable for block #{l1_block_number}: #{e.message}"
+    raise TransientValidationError, e.message
   rescue => e
-    message = "Failed to fetch API data: #{e.message}"
+    # Other unexpected errors - log and continue with empty data
+    message = "Unexpected error fetching API data: #{e.message}"
     @errors << message
-    {creations: [], transfers: [], api_unavailable: true, api_error: message}
+    {creations: [], transfers: []}
   end
 
   def aggregate_l2_events(block_hashes)
@@ -134,18 +137,24 @@ class BlockValidator
       begin
         receipts = EthRpcClient.l2.call('eth_getBlockReceipts', [block_hash])
         if receipts.nil?
-          @errors << "No receipts returned for L2 block #{block_hash}"
-          @incomplete_actual = true
-          raise "No receipts returned for L2 block #{block_hash}"
+          error_msg = "No receipts returned for L2 block #{block_hash}"
+          @errors << error_msg
+          # Treat missing receipts as potentially transient
+          raise TransientValidationError, error_msg
         end
 
         data = EventDecoder.decode_block_receipts(receipts)
         all_creations.concat(data[:creations])
         all_transfers.concat(data[:transfers])  # Ethscriptions protocol transfers
       rescue => e
-        @errors << "Failed to get receipts for block #{block_hash}: #{e.message}"
-        @incomplete_actual = true
-        raise "Failed to get receipts for block #{block_hash}: #{e.message}"
+        error_msg = "Failed to get receipts for block #{block_hash}: #{e.message}"
+        @errors << error_msg
+        # Classify L2 receipt fetch errors - network issues are transient
+        if transient_error?(e)
+          raise TransientValidationError, error_msg
+        else
+          raise
+        end
       end
     end
 
@@ -559,6 +568,21 @@ class BlockValidator
     # Use inspect to safely handle any encoding/binary data
     preview = content[0..length].inspect
     preview + (content.length > length ? "..." : "")
+  end
+
+  # Classify L2 RPC errors as transient (infrastructure) vs permanent (logic)
+  def transient_error?(error)
+    case error
+    # L2 RPC network errors
+    when SocketError, Errno::ECONNREFUSED, Errno::ECONNRESET,
+         Net::OpenTimeout, Net::ReadTimeout, Net::TimeoutError
+      true
+    # L2 RPC errors that might be transient
+    when EthRpcClient::HttpError, EthRpcClient::ApiError
+      true
+    else
+      false
+    end
   end
 
   # Sanitize data structures for JSON serialization
