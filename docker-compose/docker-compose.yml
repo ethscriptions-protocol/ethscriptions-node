@@ -35,9 +35,12 @@ services:
       PROFILE_IMPORT: ${PROFILE_IMPORT:-true}
       ETHSCRIPTIONS_API_BASE_URL: ${ETHSCRIPTIONS_API_BASE_URL-''}
       DEBUG: 0
+    volumes:
+      - node-storage:/rails/storage
     depends_on:
       geth:
         condition: service_healthy
 
 volumes:
   geth-data:
+  node-storage:

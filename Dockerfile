@@ -48,19 +48,25 @@ FROM base
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y \
     libsecp256k1-dev \
-    libyaml-0-2 && \
+    libyaml-0-2 \
+    ca-certificates \
+    tini \
+    bash && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # Copy built artifacts
 COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --from=build /rails /rails
 
+# Copy and set up entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Set up non-root user
 RUN useradd rails --create-home --shell /bin/bash && \
     chown -R rails:rails log tmp storage
 USER rails:rails
 
-# Set up databases (creates SQLite files even when validation disabled)
-RUN DISABLE_DATABASE_ENVIRONMENT_CHECK=1 bundle exec rails db:setup db:schema:load:queue
+# Database initialization moved to runtime in entrypoint script
 
-CMD ["bundle", "exec", "clockwork", "config/derive_ethscriptions_blocks.rb"]
+ENTRYPOINT ["tini", "--", "/usr/local/bin/docker-entrypoint.sh"]

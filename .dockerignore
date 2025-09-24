@@ -1,0 +1,5 @@
+storage/*.sqlite3
+log/*
+tmp/*
+.git
+node_modules
