@@ -32,7 +32,7 @@ class BlockValidator
     verify_storage_state(expected, l1_block_number, historical_block_tag)
 
     # Build comprehensive result with full debugging data
-    success = @errors.empty()
+    success = @errors.empty?
     validation_duration = Time.current - validation_start_time
 
     # Return comprehensive debugging information
