@@ -114,7 +114,9 @@ class ValidationResult < ApplicationRecord
         error_details: [e.message],
         validation_stats: {
           exception: true,
-          exception_class: e.class.name
+          exception_class: e.class.name,
+          exception_message: e.message,
+          exception_backtrace: e.backtrace&.first(10)  # Store first 10 lines of backtrace
         },
         validated_at: Time.current
       )
