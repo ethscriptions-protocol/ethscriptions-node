@@ -2,6 +2,11 @@
 pragma solidity 0.8.24;
 
 import { Constants } from "../libraries/Constants.sol";
+import { Predeploys } from "../libraries/Predeploys.sol";
+
+interface IEthscriptionsProver {
+    function flushAllProofs() external;
+}
 
 /// @custom:proxied
 /// @custom:predeploy 0x4200000000000000000000000000000000000015
@@ -80,5 +85,9 @@ contract L1Block {
             sstore(hash.slot, calldataload(100)) // bytes32
             sstore(batcherHash.slot, calldataload(132)) // bytes32
         }
+
+        // Flush all queued ethscription proofs after updating block values
+        // Each proof includes its own block number and timestamp from when it was queued
+        IEthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER).flushAllProofs();
     }
 }

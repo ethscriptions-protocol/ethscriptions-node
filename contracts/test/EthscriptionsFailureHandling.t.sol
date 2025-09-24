@@ -54,11 +54,9 @@ contract FailingProver is EthscriptionsProver {
         failMessage = _message;
     }
 
-    function proveEthscriptionData(bytes32 transactionHash) external override {
-        if (shouldFail) {
-            revert(failMessage);
-        }
-        // Otherwise do nothing
+    function queueEthscription(bytes32 txHash) external override {
+        // For testing, always succeed
+        // In the new design, queueing doesn't fail and doesn't emit events
     }
 }
 
@@ -69,11 +67,6 @@ contract EthscriptionsFailureHandlingTest is TestSetup {
     event TokenManagerFailed(
         bytes32 indexed transactionHash,
         string operation,
-        bytes revertData
-    );
-
-    event ProverFailed(
-        bytes32 indexed transactionHash,
         bytes revertData
     );
 
@@ -138,12 +131,12 @@ contract EthscriptionsFailureHandlingTest is TestSetup {
     }
 
     function testCreateEthscriptionWithProverFailure() public {
-        // Configure Prover to fail
-        FailingProver(Predeploys.ETHSCRIPTIONS_PROVER).setShouldFail(true);
-        FailingProver(Predeploys.ETHSCRIPTIONS_PROVER).setFailMessage("Proving failed");
+        // Note: With the new batched proving design, the prover doesn't fail immediately
+        // during creation. Instead, ethscriptions are queued for batch proving.
+        // This test now verifies that creation succeeds and the ethscription is queued.
 
         bytes32 txHash = keccak256("test_tx_2");
-        string memory dataUri = "data:,Hello World with failing prover";
+        string memory dataUri = "data:,Hello World with batched prover";
 
         Ethscriptions.CreateEthscriptionParams memory params = createTestParams(
             txHash,
@@ -152,14 +145,7 @@ contract EthscriptionsFailureHandlingTest is TestSetup {
             false
         );
 
-        // Expect the ProverFailed event
-        vm.expectEmit(true, false, false, true);
-        emit ProverFailed(
-            txHash,
-            abi.encodeWithSignature("Error(string)", "Proving failed")
-        );
-
-        // Create ethscription - should succeed despite Prover failure
+        // Create ethscription - should succeed and queue for proving silently (no event)
         uint256 tokenId = ethscriptions.createEthscription(params);
 
         // Verify the ethscription was created successfully

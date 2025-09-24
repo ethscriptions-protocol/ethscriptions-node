@@ -4,12 +4,10 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20CappedUpgradeable.sol";
 import "./libraries/Predeploys.sol";
-import "./EthscriptionsProver.sol";
 
 contract EthscriptionsERC20 is ERC20Upgradeable, ERC20CappedUpgradeable {
     address public constant tokenManager = Predeploys.TOKEN_MANAGER;
-    EthscriptionsProver public constant prover = EthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER);
-    
+
     bytes32 public deployTxHash; // The ethscription hash that deployed this token
     
     function initialize(
@@ -61,21 +59,13 @@ contract EthscriptionsERC20 is ERC20Upgradeable, ERC20CappedUpgradeable {
     }
     
     // Required overrides for multiple inheritance
-    function _update(address from, address to, uint256 value) 
-        internal 
-        override(ERC20Upgradeable, ERC20CappedUpgradeable) 
+    function _update(address from, address to, uint256 value)
+        internal
+        override(ERC20Upgradeable, ERC20CappedUpgradeable)
     {
         super._update(from, to, value);
-        
-        // Automatically prove token balances after any update including burns
-        // For transfers: prove both from and to
-        // For mints (from == address(0)): only prove to
-        // For burns (to == address(0)): only prove from
-        if (from != address(0)) {
-            prover.proveTokenBalance(from, deployTxHash);
-        }
-        if (to != address(0)) {
-            prover.proveTokenBalance(to, deployTxHash);
-        }
+
+        // Token balance proving has been removed in favor of ethscription-only proving
+        // Token balances can be derived from ethscription ownership and transfer history
     }
 }
