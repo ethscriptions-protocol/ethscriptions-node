@@ -103,7 +103,7 @@ contract EthscriptionsProver {
     /// @notice Internal function to create and send proof for an ethscription
     /// @param ethscriptionTxHash The transaction hash of the ethscription
     /// @param proofInfo The queued proof info containing block data
-    function _createAndSendProof(bytes32 ethscriptionTxHash, QueuedProof storage proofInfo) internal {
+    function _createAndSendProof(bytes32 ethscriptionTxHash, QueuedProof memory proofInfo) internal {
         // Get ethscription data including previous owner
         Ethscriptions.Ethscription memory etsc = ethscriptions.getEthscription(ethscriptionTxHash);
         address currentOwner = ethscriptions.currentOwner(ethscriptionTxHash);
