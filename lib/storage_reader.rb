@@ -210,7 +210,6 @@ class StorageReader
     rescue => e
       Rails.logger.error "Failed to get ethscription content #{tx_hash}: #{e.message}"
       Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
-      binding.irb if ENV['DEBUG'] == '1'
       raise e
     end
 

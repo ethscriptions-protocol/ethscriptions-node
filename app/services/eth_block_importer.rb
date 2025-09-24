@@ -434,11 +434,17 @@ class EthBlockImporter
     return false unless ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
 
     current_position = current_max_eth_block_number
+
+    # Only check every 5 blocks to reduce DB queries
+    return false unless current_position % 5 == 0
+
+    genesis_block = SysConfig.l1_genesis_block_number
     hard_limit = ENV.fetch('VALIDATION_LAG_HARD_LIMIT', 30).to_i
 
     # Check for validation gaps in recent blocks
-    # This covers BOTH sequential lag and scattered gaps
-    check_range_start = [current_position - hard_limit + 1, 1].max  # Last N blocks
+    # Start from the later of: genesis+1 or (current - limit + 1)
+    # This ensures we never try to validate genesis itself or before it
+    check_range_start = [current_position - hard_limit + 1, genesis_block + 1].max
     check_range_end = current_position
 
     # Count ALL missing validations in critical range (includes both gaps and lag)

@@ -515,9 +515,6 @@ module EthscriptionsTestHelper
     )
     ethscription_transactions.each { |tx| tx.ethscriptions_block = template_ethscriptions_block }
 
-    # Mock the L1 client but keep L2 client real
-    mock_ethereum_client = instance_double(EthRpcClient)
-    
     mock_ethereum_client = instance_double(EthRpcClient,
       get_block_number: block_number,
       get_block: block_data,
