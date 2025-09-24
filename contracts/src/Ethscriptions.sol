@@ -131,11 +131,6 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         bytes revertData
     );
 
-    /// @notice Emitted when a prover operation fails but ethscription continues
-    event ProverFailed(
-        bytes32 indexed transactionHash,
-        bytes revertData
-    );
 
 
     /// @notice Modifier to emit pending genesis events on first real creation
@@ -407,12 +402,8 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             }
         }
 
-        // Use try-catch to prevent prover failures from reverting operations
-        try prover.proveEthscriptionData(txHash) {} catch (bytes memory revertData) {
-            // Proving failed, but the operation should continue
-            // The prover can be called again later if needed
-            emit ProverFailed(txHash, revertData);
-        }
+        // Queue ethscription for batch proving at block boundary
+        prover.queueEthscription(txHash);
     }
 
     /// @notice Get ethscription details (returns struct to avoid stack too deep)
