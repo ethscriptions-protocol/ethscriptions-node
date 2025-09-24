@@ -5,10 +5,10 @@ import "./ERC721EthscriptionsUpgradeable.sol";
 import {SSTORE2} from "solady/utils/SSTORE2.sol";
 import {Base64} from "solady/utils/Base64.sol";
 import {LibString} from "solady/utils/LibString.sol";
-import "./TokenManager.sol";
 import "./EthscriptionsProver.sol";
 import "./libraries/Predeploys.sol";
 import "./L2/L1Block.sol";
+import "./protocols/IProtocolHandler.sol";
 
 /// @title Ethscriptions ERC-721 Contract
 /// @notice Mints Ethscriptions as ERC-721 tokens based on L1 transaction data
@@ -49,13 +49,10 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         uint256 size;           // Size of raw content
     }
     
-    struct TokenParams {
-        string op;        // "deploy" or "mint"
-        string protocol;  
-        string tick;
-        uint256 max;      // max supply for deploy
-        uint256 lim;      // mint limit for deploy
-        uint256 amt;      // amount for mint
+    struct ProtocolParams {
+        string protocol;  // Protocol identifier (e.g., "erc-20", "collections", etc.)
+        string operation; // Operation to perform (e.g., "mint", "deploy", "create_collection", etc.)
+        bytes data;       // ABI-encoded parameters specific to the protocol/operation
     }
     
     struct CreateEthscriptionParams {
@@ -67,7 +64,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         string mediaType;
         string mimeSubtype;
         bool esip6;
-        TokenParams tokenParams;  // Token operation data (optional)
+        ProtocolParams protocolParams;  // Protocol operation data (optional)
     }
 
     /// @dev Transaction hash => Ethscription data
@@ -88,11 +85,17 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     /// @dev Mapping from ethscription number (token ID) to transaction hash
     mapping(uint256 => bytes32) public tokenIdToTransactionHash;
 
-    /// @dev Token Manager contract (pre-deployed at known address)
-    TokenManager public constant tokenManager = TokenManager(Predeploys.TOKEN_MANAGER);
-    
     /// @dev Ethscriptions Prover contract (pre-deployed at known address)
     EthscriptionsProver public constant prover = EthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER);
+
+    /// @dev Protocol registry - maps protocol names to handler addresses
+    mapping(string => address) public protocolHandlers;
+
+    /// @dev Track which protocol an ethscription uses
+    mapping(bytes32 => string) public ethscriptionProtocol;
+
+    /// @dev Event emitted when a protocol handler is registered
+    event ProtocolRegistered(string indexed protocol, address indexed handler);
 
     /// @dev Array of genesis ethscription transaction hashes that need events emitted
     /// @notice This array is populated during genesis and cleared (by popping) when events are emitted
@@ -124,10 +127,10 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     error EthscriptionAlreadyExists();
     error EthscriptionDoesNotExist();
 
-    /// @notice Emitted when a TokenManager operation fails but ethscription continues
-    event TokenManagerFailed(
+    /// @notice Emitted when a protocol handler operation fails but ethscription continues
+    event ProtocolHandlerFailed(
         bytes32 indexed transactionHash,
-        string operation,
+        string protocol,
         bytes revertData
     );
 
@@ -225,6 +228,23 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         return "ETHSCRIPTIONS";
     }
 
+    /// @notice Register a protocol handler
+    /// @param protocol The protocol identifier (e.g., "erc-20", "collections")
+    /// @param handler The address of the handler contract
+    /// @dev Only callable by the depositor address (used during genesis setup)
+    function registerProtocol(string calldata protocol, address handler) external {
+        // Only the depositor address can register protocols
+        // This is set during genesis and used for initial protocol setup
+        require(
+            msg.sender == Predeploys.DEPOSITOR_ACCOUNT,
+            "Only depositor can register protocols"
+        );
+        require(handler != address(0), "Invalid handler address");
+        require(protocolHandlers[protocol] == address(0), "Protocol already registered");
+        protocolHandlers[protocol] = handler;
+        emit ProtocolRegistered(protocol, handler);
+    }
+
     /// @notice Create (mint) a new ethscription token
     /// @dev Called via system transaction with msg.sender spoofed as the actual creator
     /// @param params Struct containing all ethscription creation parameters
@@ -292,17 +312,29 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             contentBySha[contentSha].pointers.length
         );
 
-        // Handle token operations - delegate all logic to TokenManager
-        // No need to check if it's a token operation, handleTokenOperation will check the op
-        // Use try-catch to prevent TokenManager failures from reverting ethscription creation
-        try tokenManager.handleTokenOperation(
-            params.transactionHash,
-            params.initialOwner,
-            params.tokenParams
-        ) {} catch (bytes memory revertData) {
-            // Token operation failed, but ethscription creation should continue
-            // The ethscription is still valid even if token processing fails
-            emit TokenManagerFailed(params.transactionHash, "handleTokenOperation", revertData);
+        // Handle protocol operations if a protocol is specified
+        if (bytes(params.protocolParams.protocol).length > 0) {
+            // Track which protocol this ethscription uses
+            ethscriptionProtocol[params.transactionHash] = params.protocolParams.protocol;
+
+            address handler = protocolHandlers[params.protocolParams.protocol];
+            if (handler != address(0)) {
+                // Call the operation-specific function directly
+                // We encode with (bytes32, bytes) - the handler will decode the bytes into its expected struct
+                bytes memory callData = abi.encodeWithSignature(
+                    string.concat("op_", params.protocolParams.operation, "(bytes32,bytes)"),
+                    params.transactionHash,
+                    params.protocolParams.data
+                );
+
+                (bool success, bytes memory revertData) = handler.call(callData);
+
+                if (!success) {
+                    // Protocol operation failed, but ethscription creation should continue
+                    // The ethscription is still valid even if protocol processing fails
+                    emit ProtocolHandlerFailed(params.transactionHash, params.protocolParams.protocol, revertData);
+                }
+            }
         }
     }
 
@@ -395,10 +427,15 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             emit EthscriptionTransferred(txHash, from, to, tokenId);
             etsc.previousOwner = from;
 
-            // Use try-catch to prevent TokenManager failures from reverting transfers
-            try tokenManager.handleTokenTransfer(txHash, from, to) {} catch (bytes memory revertData) {
-                // Token transfer handling failed, but ethscription transfer should continue
-                emit TokenManagerFailed(txHash, "handleTokenTransfer", revertData);
+            // Notify protocol handler about the transfer if this ethscription has a protocol
+            string memory protocol = ethscriptionProtocol[txHash];
+            if (bytes(protocol).length > 0) {
+                address handler = protocolHandlers[protocol];
+                if (handler != address(0)) {
+                    try IProtocolHandler(handler).onTransfer(txHash, from, to) {} catch (bytes memory revertData) {
+                        emit ProtocolHandlerFailed(txHash, protocol, revertData);
+                    }
+                }
             }
         }
 
@@ -609,6 +646,13 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
 
         // Always return HTML as base64 for safety
         return _constructDataURI("text/html", content);
+    }
+
+    /// @notice Check if an ethscription exists
+    /// @param transactionHash The transaction hash to check
+    /// @return true if the ethscription exists
+    function exists(bytes32 transactionHash) external view returns (bool) {
+        return _ethscriptionExists(transactionHash);
     }
 
     /// @notice Get current owner of an ethscription

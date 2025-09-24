@@ -28,6 +28,9 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
 
     /// @custom:storage-location erc7201:ethscriptions.storage.ERC721
     struct ERC721Storage {
+        string _name;
+        string _symbol;
+        
         // Token owners (can be address(0) for null-owned tokens)
         mapping(uint256 tokenId => address) _owners;
         // Balance per address (including null address)
@@ -50,12 +53,14 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
     /**
      * @dev Initializes the contract.
      */
-    function __ERC721_init() internal onlyInitializing {
-        __ERC721_init_unchained();
+    function __ERC721_init(string memory name_, string memory symbol_) internal onlyInitializing {
+        __ERC721_init_unchained(name_, symbol_);
     }
 
-    function __ERC721_init_unchained() internal onlyInitializing {
-        // No initialization needed for simplified version
+    function __ERC721_init_unchained(string memory name_, string memory symbol_) internal onlyInitializing {
+        ERC721Storage storage $ = _getERC721Storage();
+        $._name = name_;
+        $._symbol = symbol_;
     }
 
     /**
@@ -88,13 +93,19 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
      * @dev See {IERC721Metadata-name}.
      * Must be overridden by child contract.
      */
-    function name() public view virtual returns (string memory);
+    function name() public view virtual returns (string memory) {
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._name;
+    }
 
     /**
      * @dev See {IERC721Metadata-symbol}.
      * Must be overridden by child contract.
      */
-    function symbol() public view virtual returns (string memory);
+    function symbol() public view virtual returns (string memory) {
+        ERC721Storage storage $ = _getERC721Storage();
+        return $._symbol;
+    }
 
     /**
      * @dev See {IERC721Metadata-tokenURI}.
@@ -257,5 +268,13 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
     function _tokenExists(uint256 tokenId) internal view returns (bool) {
         ERC721Storage storage $ = _getERC721Storage();
         return $._existsFlag[tokenId];
+    }
+
+    /**
+     * @dev Sets the existence flag for a token. Used by child contracts for removal.
+     */
+    function _setTokenExists(uint256 tokenId, bool exists) internal {
+        ERC721Storage storage $ = _getERC721Storage();
+        $._existsFlag[tokenId] = exists;
     }
 }

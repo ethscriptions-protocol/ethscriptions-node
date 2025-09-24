@@ -25,13 +25,10 @@ contract TestImageSVGWrapper is TestSetup {
             mediaType: "image",
             mimeSubtype: "png",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
+            protocolParams: Ethscriptions.ProtocolParams({
                 protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
+                operation: "",
+                data: ""
             })
         }));
 

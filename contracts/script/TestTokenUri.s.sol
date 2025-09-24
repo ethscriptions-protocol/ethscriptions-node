@@ -25,7 +25,7 @@ contract TestTokenUri is Script {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams("", "", "", 0, 0, 0)
+            protocolParams: Ethscriptions.ProtocolParams("", "", "")
         }));
 
         // Test case 2: JSON content (should use viewer with pretty print)
@@ -39,7 +39,7 @@ contract TestTokenUri is Script {
             mediaType: "application",
             mimeSubtype: "json",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams("", "", "", 0, 0, 0)
+            protocolParams: Ethscriptions.ProtocolParams("", "", "")
         }));
 
         // Test case 3: HTML content (should pass through directly)
@@ -53,7 +53,7 @@ contract TestTokenUri is Script {
             mediaType: "text",
             mimeSubtype: "html",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams("", "", "", 0, 0, 0)
+            protocolParams: Ethscriptions.ProtocolParams("", "", "")
         }));
 
         // Test case 4: Image (1x1 red pixel PNG, base64)
@@ -68,7 +68,7 @@ contract TestTokenUri is Script {
             mediaType: "image",
             mimeSubtype: "png",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams("", "", "", 0, 0, 0)
+            protocolParams: Ethscriptions.ProtocolParams("", "", "")
         }));
 
         // Test case 5: CSS content (should use viewer)
@@ -82,7 +82,7 @@ contract TestTokenUri is Script {
             mediaType: "text",
             mimeSubtype: "css",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams("", "", "", 0, 0, 0)
+            protocolParams: Ethscriptions.ProtocolParams("", "", "")
         }));
 
         // Output all token URIs

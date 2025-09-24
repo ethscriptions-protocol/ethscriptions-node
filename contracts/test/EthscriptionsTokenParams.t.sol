@@ -12,6 +12,12 @@ contract EthscriptionsTokenParamsTest is TestSetup {
         string memory dataUri = string.concat("data:,", tokenJson);
         bytes32 contentUriHash = sha256(bytes(dataUri));
 
+        TokenManager.DeployOperation memory deployOp = TokenManager.DeployOperation({
+            tick: "eths",
+            maxSupply: 21000000,
+            mintAmount: 1000
+        });
+
         Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
             transactionHash: bytes32(uint256(1)),
             contentUriHash: contentUriHash,
@@ -21,13 +27,10 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "deploy",
+            protocolParams: Ethscriptions.ProtocolParams({
                 protocol: "erc-20",
-                tick: "eths",
-                max: 21000000,
-                lim: 1000,
-                amt: 0
+                operation: "deploy",
+                data: abi.encode(deployOp)
             })
         });
 
@@ -49,6 +52,12 @@ contract EthscriptionsTokenParamsTest is TestSetup {
         string memory dataUri = string.concat("data:,", tokenJson);
         bytes32 contentUriHash = sha256(bytes(dataUri));
 
+        TokenManager.MintOperation memory mintOp = TokenManager.MintOperation({
+            tick: "eths",
+            id: 1,
+            amount: 1000
+        });
+
         Ethscriptions.CreateEthscriptionParams memory params = Ethscriptions.CreateEthscriptionParams({
             transactionHash: bytes32(uint256(2)),
             contentUriHash: contentUriHash,
@@ -58,13 +67,10 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "mint",
+            protocolParams: Ethscriptions.ProtocolParams({
                 protocol: "erc-20",
-                tick: "eths",
-                max: 1,  // id stored in max field
-                lim: 0,
-                amt: 1000
+                operation: "mint",
+                data: abi.encode(mintOp)
             })
         });
 
@@ -90,13 +96,10 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
+            protocolParams: Ethscriptions.ProtocolParams({
                 protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
+                operation: "",
+                data: ""
             })
         });
 
@@ -112,6 +115,13 @@ contract EthscriptionsTokenParamsTest is TestSetup {
         string memory deployJson = '{"p":"erc-20","op":"deploy","tick":"test","max":"1000000","lim":"100"}';
         string memory deployUri = string.concat("data:,", deployJson);
 
+
+        TokenManager.DeployOperation memory deployOp = TokenManager.DeployOperation({
+            tick: "test",
+            maxSupply: 1000000,
+            mintAmount: 100
+        });
+
         Ethscriptions.CreateEthscriptionParams memory deployParams = Ethscriptions.CreateEthscriptionParams({
             transactionHash: keccak256("deploy_tx"),
             contentUriHash: sha256(bytes(deployUri)),
@@ -121,13 +131,10 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mediaType: "application",
             mimeSubtype: "json",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "deploy",
+            protocolParams: Ethscriptions.ProtocolParams({
                 protocol: "erc-20",
-                tick: "test",
-                max: 1000000,
-                lim: 100,
-                amt: 0
+                operation: "deploy",
+                data: abi.encode(deployOp)
             })
         });
 
@@ -136,6 +143,12 @@ contract EthscriptionsTokenParamsTest is TestSetup {
         // Then create a mint operation
         string memory mintJson = '{"p":"erc-20","op":"mint","tick":"test","id":"1","amt":"100"}';
         string memory mintUri = string.concat("data:,", mintJson);
+
+        TokenManager.MintOperation memory mintOp = TokenManager.MintOperation({
+            tick: "test",
+            id: 1,
+            amount: 100
+        });
 
         Ethscriptions.CreateEthscriptionParams memory mintParams = Ethscriptions.CreateEthscriptionParams({
             transactionHash: keccak256("mint_tx"),
@@ -146,13 +159,10 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mediaType: "application",
             mimeSubtype: "json",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "mint",
+            protocolParams: Ethscriptions.ProtocolParams({
                 protocol: "erc-20",
-                tick: "test",
-                max: 1,  // id
-                lim: 0,
-                amt: 100
+                operation: "mint",
+                data: abi.encode(mintOp)
             })
         });
 

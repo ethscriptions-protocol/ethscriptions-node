@@ -5,9 +5,12 @@ pragma solidity 0.8.24;
 /// @notice Defines all predeploy addresses for the L2 chain
 library Predeploys {
     // ============ OP Stack Predeploys ============
-    
+
     /// @notice L1Block predeploy (stores L1 block information)
     address constant L1_BLOCK_ATTRIBUTES = 0x4200000000000000000000000000000000000015;
+
+    /// @notice Depositor Account (system address that can make deposits)
+    address constant DEPOSITOR_ACCOUNT = 0xDeaDDEaDDeAdDeAdDEAdDEaddeAddEAdDEAd0001;
     
     /// @notice L2ToL1MessagePasser predeploy (for L2->L1 messages)
     address constant L2_TO_L1_MESSAGE_PASSER = 0x4200000000000000000000000000000000000016;
@@ -29,6 +32,12 @@ library Predeploys {
     
     /// @notice EthscriptionsERC20 template for cloning
     address constant ERC20_TEMPLATE = 0x3300000000000000000000000000000000000004;
+
+    /// @notice EthscriptionERC721 template for cloning (collections)
+    address constant ERC721_TEMPLATE = 0x3300000000000000000000000000000000000005;
+
+    /// @notice CollectionsManager for collections protocol
+    address constant COLLECTIONS_MANAGER = 0x3300000000000000000000000000000000000006;
     
     // ============ Helper Functions ============
     

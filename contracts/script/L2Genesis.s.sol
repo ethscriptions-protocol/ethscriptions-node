@@ -121,7 +121,7 @@ contract L2Genesis is Script {
         config = L2GenesisConfig.getConfig();
 
         // Use a deployer account for genesis setup
-        address deployer = makeAddr("deployer");
+        address deployer = Predeploys.DEPOSITOR_ACCOUNT;
         vm.startPrank(deployer);
         vm.chainId(config.l2ChainID);
 
@@ -187,14 +187,32 @@ contract L2Genesis is Script {
 
         // Deploy other Ethscriptions-related contracts
         _setEthscriptionsCode(Predeploys.TOKEN_MANAGER, "TokenManager");
+        _setEthscriptionsCode(Predeploys.COLLECTIONS_MANAGER, "CollectionsManager");
         _setEthscriptionsCode(Predeploys.ETHSCRIPTIONS_PROVER, "EthscriptionsProver");
         _setEthscriptionsCode(Predeploys.ERC20_TEMPLATE, "EthscriptionsERC20");
+        _setEthscriptionsCode(Predeploys.ERC721_TEMPLATE, "EthscriptionERC721");
 
         createGenesisEthscriptions();
-        
+
+        // Register protocol handlers
+        registerProtocolHandlers();
+
         // Disable initializers on all Ethscriptions contracts
         _disableInitializers(Predeploys.ETHSCRIPTIONS);
         _disableInitializers(Predeploys.ERC20_TEMPLATE);
+        _disableInitializers(Predeploys.ERC721_TEMPLATE);
+    }
+
+    /// @notice Register protocol handlers with the Ethscriptions contract
+    function registerProtocolHandlers() internal {
+        Ethscriptions ethscriptions = Ethscriptions(Predeploys.ETHSCRIPTIONS);
+
+        ethscriptions.registerProtocol("erc-20", Predeploys.TOKEN_MANAGER);
+        console.log("Registered erc-20 protocol handler:", Predeploys.TOKEN_MANAGER);
+
+        // Register the CollectionsManager as the handler for collections protocol
+        ethscriptions.registerProtocol("collections", Predeploys.COLLECTIONS_MANAGER);
+        console.log("Registered collections protocol handler:", Predeploys.COLLECTIONS_MANAGER);
     }
 
     /// @notice Deploy L1Block contract (stores L1 block attributes)
@@ -293,13 +311,10 @@ contract L2Genesis is Script {
         params.mediaType = vm.parseJsonString(json, string.concat(basePath, ".media_type"));
         params.mimeSubtype = vm.parseJsonString(json, string.concat(basePath, ".mime_subtype"));
         params.esip6 = vm.parseJsonBool(json, string.concat(basePath, ".esip6"));
-        params.tokenParams = Ethscriptions.TokenParams({
-            op: "",
+        params.protocolParams = Ethscriptions.ProtocolParams({
             protocol: "",
-            tick: "",
-            max: 0,
-            lim: 0,
-            amt: 0
+            operation: "",
+            data: ""
         });
         
         // Create the genesis ethscription with all values

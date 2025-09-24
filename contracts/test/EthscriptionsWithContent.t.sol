@@ -23,13 +23,10 @@ contract EthscriptionsWithContentTest is TestSetup {
             mediaType: "text",
             mimeSubtype: "plain",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
+            protocolParams: Ethscriptions.ProtocolParams({
                 protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
+                operation: "",
+                data: ""
             })
         });
 
@@ -108,13 +105,10 @@ contract EthscriptionsWithContentTest is TestSetup {
             mediaType: "application",
             mimeSubtype: "octet-stream",
             esip6: false,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
+            protocolParams: Ethscriptions.ProtocolParams({
                 protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
+                operation: "",
+                data: ""
             })
         });
 
