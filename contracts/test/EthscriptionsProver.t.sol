@@ -76,9 +76,6 @@ contract EthscriptionsProverTest is TestSetup {
         assertEq(decodedProof.l1BlockHash, bytes32(0));
     }
     
-    
-    
-
     function testBatchFlushProofs() public {
         // First flush any pending proofs from setup
         vm.roll(block.number + 1);
