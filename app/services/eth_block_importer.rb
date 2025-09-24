@@ -448,7 +448,9 @@ class EthBlockImporter
     check_range_end = current_position
 
     # Count ALL missing validations in critical range (includes both gaps and lag)
+    ImportProfiler.start("validation_gap_count")
     gap_count = ValidationResult.validation_gap_count(check_range_start, check_range_end)
+    ImportProfiler.stop("validation_gap_count")
 
     if gap_count >= hard_limit
       Rails.logger.error "Too many validation gaps: #{gap_count} unvalidated blocks in range #{check_range_start}-#{check_range_end} (limit: #{hard_limit})"
