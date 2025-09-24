@@ -575,9 +575,9 @@ class BlockValidator
     case error
     # L2 RPC network errors
     when SocketError, Errno::ECONNREFUSED, Errno::ECONNRESET,
-         Net::OpenTimeout, Net::ReadTimeout, Net::TimeoutError
+         Net::OpenTimeout, Net::ReadTimeout
       true
-    # L2 RPC errors that might be transient
+    # L2 RPC client errors that might be transient
     when EthRpcClient::HttpError, EthRpcClient::ApiError
       true
     else
