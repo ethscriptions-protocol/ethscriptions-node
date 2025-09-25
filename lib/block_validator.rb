@@ -2,6 +2,7 @@ class BlockValidator
   attr_reader :errors, :stats
 
   # Exception for transient errors that should trigger retries
+  # This is informational - all exceptions are treated as transient
   class TransientValidationError < StandardError; end
 
   def initialize
@@ -117,15 +118,10 @@ class BlockValidator
 
   def fetch_expected_data(l1_block_number)
     EthscriptionsApiClient.fetch_block_data(l1_block_number)
-  rescue EthscriptionsApiClient::ApiUnavailableError => e
-    # API unavailable after exhausting all retries - this is an infrastructure issue
-    Rails.logger.warn "API unavailable for block #{l1_block_number}: #{e.message}"
-    raise TransientValidationError, e.message
   rescue => e
-    # Other unexpected errors - log and continue with empty data
-    message = "Unexpected error fetching API data: #{e.message}"
-    @errors << message
-    {creations: [], transfers: []}
+    # Treat any API client failure as transient to avoid false negatives
+    Rails.logger.warn "Transient API error for block #{l1_block_number}: #{e.class}: #{e.message}"
+    raise TransientValidationError, e.message
   end
 
   def aggregate_l2_events(block_hashes)
@@ -137,9 +133,9 @@ class BlockValidator
       begin
         receipts = EthRpcClient.l2.call('eth_getBlockReceipts', [block_hash])
         if receipts.nil?
+          # Treat missing receipts as transient infrastructure issue
           error_msg = "No receipts returned for L2 block #{block_hash}"
-          @errors << error_msg
-          # Treat missing receipts as potentially transient
+          Rails.logger.warn "Transient L2 error: #{error_msg}"
           raise TransientValidationError, error_msg
         end
 
@@ -147,14 +143,10 @@ class BlockValidator
         all_creations.concat(data[:creations])
         all_transfers.concat(data[:transfers])  # Ethscriptions protocol transfers
       rescue => e
+        # Treat any L2 RPC failure as transient to avoid false negatives
         error_msg = "Failed to get receipts for block #{block_hash}: #{e.message}"
-        @errors << error_msg
-        # Classify L2 receipt fetch errors - network issues are transient
-        if transient_error?(e)
-          raise TransientValidationError, error_msg
-        else
-          raise
-        end
+        Rails.logger.warn "Transient L2 error: #{error_msg}"
+        raise TransientValidationError, error_msg
       end
     end
 
@@ -348,14 +340,15 @@ class BlockValidator
     begin
       stored = StorageReader.get_ethscription_with_content(tx_hash, block_tag: block_tag)
     rescue => e
-      @errors << "Ethscription #{tx_hash} not found in contract storage: #{e.message}"
-      @storage_checks_performed.increment
-      return
+      # RPC/network error - treat as transient inability to validate
+      Rails.logger.warn "Transient storage error for #{tx_hash}: #{e.message}"
+      raise TransientValidationError, "Storage read failed for #{tx_hash}: #{e.message}"
     end
 
     @storage_checks_performed.increment
 
     if stored.nil?
+      # Ethscription genuinely doesn't exist in contract - this is a validation failure
       @errors << "Ethscription #{tx_hash} not found in contract storage"
       return
     end
@@ -509,18 +502,32 @@ class BlockValidator
     # Verify each token's final owner
     final_owners.each do |token_id, expected_owner|
       # First check if the ethscription exists in storage
-      ethscription = StorageReader.get_ethscription(token_id, block_tag: block_tag)
+      begin
+        ethscription = StorageReader.get_ethscription(token_id, block_tag: block_tag)
+      rescue => e
+        # RPC/network error - treat as transient inability to validate
+        Rails.logger.warn "Transient storage error for #{token_id}: #{e.message}"
+        raise TransientValidationError, "Storage read failed for #{token_id}: #{e.message}"
+      end
 
       if ethscription.nil?
-        # Token doesn't exist yet - treat as fatal divergence
+        # Token genuinely doesn't exist - this is a validation failure
         @errors << "Token #{token_id} not found in storage"
         next
       end
 
-      actual_owner = StorageReader.get_owner(token_id, block_tag: block_tag)
+      begin
+        actual_owner = StorageReader.get_owner(token_id, block_tag: block_tag)
+      rescue => e
+        # RPC/network error - treat as transient inability to validate
+        Rails.logger.warn "Transient owner read error for #{token_id}: #{e.message}"
+        raise TransientValidationError, "Owner read failed for #{token_id}: #{e.message}"
+      end
+
       @storage_checks_performed.increment
 
       if actual_owner.nil?
+        # Owner doesn't exist (shouldn't happen if ethscription exists) - validation failure
         @errors << "Could not verify owner of token #{token_id}"
         next
       end
@@ -570,20 +577,6 @@ class BlockValidator
     preview + (content.length > length ? "..." : "")
   end
 
-  # Classify L2 RPC errors as transient (infrastructure) vs permanent (logic)
-  def transient_error?(error)
-    case error
-    # L2 RPC network errors
-    when SocketError, Errno::ECONNREFUSED, Errno::ECONNRESET,
-         Net::OpenTimeout, Net::ReadTimeout
-      true
-    # L2 RPC client errors that might be transient
-    when EthRpcClient::HttpError, EthRpcClient::ApiError
-      true
-    else
-      false
-    end
-  end
 
   # Sanitize data structures for JSON serialization
   def sanitize_for_json(data)
@@ -604,4 +597,3 @@ class BlockValidator
     end
   end
 end
-
