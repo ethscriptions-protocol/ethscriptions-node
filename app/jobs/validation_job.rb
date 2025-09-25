@@ -1,13 +1,11 @@
 class ValidationJob < ApplicationJob
   queue_as :validation
 
-  # Import TransientValidationError from BlockValidator
-  TransientValidationError = BlockValidator::TransientValidationError
-
-  # Only retry transient errors, not all StandardError
-  retry_on TransientValidationError,
+  # Retry all errors - any exception means we couldn't validate, not that validation failed
+  # StandardError catches all normal exceptions (network, RPC, API, etc.)
+  retry_on StandardError,
            wait: ENV.fetch('VALIDATION_RETRY_WAIT_SECONDS', 5).to_i.seconds,
-           attempts: ENV.fetch('VALIDATION_TRANSIENT_RETRIES', 5).to_i
+           attempts: ENV.fetch('VALIDATION_TRANSIENT_RETRIES', 1000).to_i
 
   def perform(l1_block_number, l2_block_hashes)
     start_time = Time.current
@@ -15,13 +13,13 @@ class ValidationJob < ApplicationJob
     # ValidationResult.validate_and_save will:
     # 1. Create ValidationResult with success: true (job succeeds)
     # 2. Create ValidationResult with success: false (job succeeds - real validation failure found)
-    # 3. Raise TransientValidationError (job retries via retry_on, then fails if exhausted)
+    # 3. Raise any exception (job retries via retry_on StandardError)
     ValidationResult.validate_and_save(l1_block_number, l2_block_hashes)
 
     elapsed_time = Time.current - start_time
     Rails.logger.info "ValidationJob: Block #{l1_block_number} validation completed in #{elapsed_time.round(3)}s"
-
-    # Job completes successfully for cases 1 & 2
-    # TransientValidationError will be handled by retry_on automatically
+  rescue => e
+    Rails.logger.error "ValidationJob failed for L1 #{l1_block_number}: #{e.class}: #{e.message}"
+    raise
   end
 end
