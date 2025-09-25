@@ -189,9 +189,9 @@ class StorageReader
         l2_block_number: ethscription_data[7],
         l1_block_hash: '0x' + ethscription_data[8].unpack1('H*')
       }
-    rescue => e
-      Rails.logger.error "Failed to get ethscription #{tx_hash}: #{e.message}"
-      Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
+    rescue EthRpcClient::ExecutionRevertedError => e
+      # Contract reverted - ethscription doesn't exist
+      Rails.logger.debug "Ethscription #{tx_hash} doesn't exist (contract reverted): #{e.message}"
       nil
     end
 
@@ -214,10 +214,10 @@ class StorageReader
 
       # Return the raw bytes content
       decoded[0]
-    rescue => e
-      Rails.logger.error "Failed to get ethscription content #{tx_hash}: #{e.message}"
-      Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
-      raise e
+    rescue EthRpcClient::ExecutionRevertedError => e
+      # Contract reverted - ethscription doesn't exist
+      Rails.logger.debug "Ethscription content #{tx_hash} doesn't exist (contract reverted): #{e.message}"
+      nil
     end
 
     def get_owner(token_id, block_tag: 'latest')
@@ -240,8 +240,9 @@ class StorageReader
       # Decode the result - ownerOf returns a single address
       decoded = Eth::Abi.decode(['address'], result)
       Eth::Address.new(decoded[0]).to_s
-    rescue => e
-      Rails.logger.error "Failed to get owner of #{token_id}: #{e.message}"
+    rescue EthRpcClient::ExecutionRevertedError => e
+      # Contract reverted - token doesn't exist
+      Rails.logger.debug "Token #{token_id} doesn't exist (contract reverted): #{e.message}"
       nil
     end
 
