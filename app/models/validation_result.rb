@@ -62,70 +62,42 @@ class ValidationResult < ApplicationRecord
   def self.validate_and_save(l1_block_number, l2_block_hashes)
     Rails.logger.info "ValidationResult: Validating L1 block #{l1_block_number}"
 
-    begin
-      # Create validator and validate (validator fetches its own API data)
-      validator = BlockValidator.new
-      start_time = Time.current
-      block_result = validator.validate_l1_block(l1_block_number, l2_block_hashes)
+    # Create validator and validate (validator fetches its own API data)
+    validator = BlockValidator.new
+    start_time = Time.current
+    block_result = validator.validate_l1_block(l1_block_number, l2_block_hashes)
 
-      # Find or initialize - idempotent for re-runs
-      validation_result = find_or_initialize_by(l1_block: l1_block_number)
+    # Find or initialize - idempotent for re-runs
+    validation_result = find_or_initialize_by(l1_block: l1_block_number)
 
-      validation_result.assign_attributes(
+    validation_result.assign_attributes(
+      success: block_result.success,
+      error_details: block_result.errors,
+      validation_stats: {
+        # Basic stats
         success: block_result.success,
-        error_details: block_result.errors,
-        validation_stats: {
-          # Basic stats
-          success: block_result.success,
-          l1_block: l1_block_number,
-          l2_blocks: l2_block_hashes,
+        l1_block: l1_block_number,
+        l2_blocks: l2_block_hashes,
 
-          # Detailed comparison data
-          validation_details: block_result.stats,
+        # Detailed comparison data
+        validation_details: block_result.stats,
 
-          # Store the raw data for debugging
-          raw_api_data: block_result.respond_to?(:api_data) ? block_result.api_data : nil,
-          raw_l2_events: block_result.respond_to?(:l2_events) ? block_result.l2_events : nil,
+        # Store the raw data for debugging
+        raw_api_data: block_result.respond_to?(:api_data) ? block_result.api_data : nil,
+        raw_l2_events: block_result.respond_to?(:l2_events) ? block_result.l2_events : nil,
 
-          # Timing info
-          validation_duration_ms: ((Time.current - start_time) * 1000).round(2)
-        },
-        validated_at: Time.current
-      )
+        # Timing info
+        validation_duration_ms: ((Time.current - start_time) * 1000).round(2)
+      },
+      validated_at: Time.current
+    )
 
-      validation_result.save!
+    validation_result.save!
 
-      # Log the result
-      validation_result.log_summary
+    # Log the result
+    validation_result.log_summary
 
-      validation_result
-    rescue BlockValidator::TransientValidationError => e
-      # Don't persist transient errors - let ValidationJob handle retries
-      Rails.logger.debug "ValidationResult: Transient error for block #{l1_block_number}: #{e.message}"
-      raise e
-    rescue => e
-      Rails.logger.error "ValidationResult: Exception validating block #{l1_block_number}: #{e.message}"
-
-      # Only persist non-transient validation errors - idempotent for re-runs
-      validation_result = find_or_initialize_by(l1_block: l1_block_number)
-
-      validation_result.assign_attributes(
-        success: false,
-        error_details: [e.message],
-        validation_stats: {
-          exception: true,
-          exception_class: e.class.name,
-          exception_message: e.message,
-          exception_backtrace: e.backtrace&.first(10)  # Store first 10 lines of backtrace
-        },
-        validated_at: Time.current
-      )
-
-      validation_result.save!
-
-      validation_result.log_summary
-      raise e
-    end
+    validation_result
   end
 
   # Instance methods

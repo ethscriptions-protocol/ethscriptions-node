@@ -101,7 +101,11 @@ class StorageReader
 
       # Make the eth_call
       result = eth_call('0x' + calldata.unpack1('H*'), block_tag)
-      raise StandardError, "Ethscription not found: #{tx_hash}" if result.nil? || result == '0x' || result == '0x0'
+      # When contract returns 0x/0x0, the ethscription doesn't exist (not an error, just not found)
+      return nil if result == '0x' || result == '0x0'
+
+      # If result is nil, that's an RPC/network error
+      raise StandardError, "RPC call failed for ethscription #{tx_hash}" if result.nil?
 
       # Decode the tuple: (Ethscription, bytes)
       types = ['((bytes32,bytes32,string,string,string,bool),address,address,address,uint256,uint256,uint64,uint64,bytes32)', 'bytes']
@@ -152,7 +156,10 @@ class StorageReader
 
       # Make the eth_call
       result = eth_call('0x' + calldata.unpack1('H*'), block_tag)
-      return nil if result.nil? || result == '0x' || result == '0x0'
+      # Deterministic not-found from contract returns 0x/0x0
+      return nil if result == '0x' || result == '0x0'
+      # Nil indicates an RPC/network failure
+      raise StandardError, "RPC call failed for ethscription #{tx_hash}" if result.nil?
 
       # Decode using Eth::Abi
       # Updated types for nested struct: ContentInfo is a tuple within the main tuple
@@ -182,9 +189,9 @@ class StorageReader
         l2_block_number: ethscription_data[7],
         l1_block_hash: '0x' + ethscription_data[8].unpack1('H*')
       }
-    rescue => e
-      Rails.logger.error "Failed to get ethscription #{tx_hash}: #{e.message}"
-      Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
+    rescue EthRpcClient::ExecutionRevertedError => e
+      # Contract reverted - ethscription doesn't exist
+      Rails.logger.debug "Ethscription #{tx_hash} doesn't exist (contract reverted): #{e.message}"
       nil
     end
 
@@ -207,10 +214,10 @@ class StorageReader
 
       # Return the raw bytes content
       decoded[0]
-    rescue => e
-      Rails.logger.error "Failed to get ethscription content #{tx_hash}: #{e.message}"
-      Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
-      raise e
+    rescue EthRpcClient::ExecutionRevertedError => e
+      # Contract reverted - ethscription doesn't exist
+      Rails.logger.debug "Ethscription content #{tx_hash} doesn't exist (contract reverted): #{e.message}"
+      nil
     end
 
     def get_owner(token_id, block_tag: 'latest')
@@ -225,13 +232,17 @@ class StorageReader
 
       # Make the eth_call
       result = eth_call('0x' + calldata.unpack1('H*'), block_tag)
-      return nil if result.nil? || result == '0x'
+      # Some nodes return 0x when the call yields no data
+      return nil if result == '0x'
+      # Nil indicates an RPC/network failure
+      raise StandardError, "RPC call failed for ownerOf #{token_id}" if result.nil?
 
       # Decode the result - ownerOf returns a single address
       decoded = Eth::Abi.decode(['address'], result)
       Eth::Address.new(decoded[0]).to_s
-    rescue => e
-      Rails.logger.error "Failed to get owner of #{token_id}: #{e.message}"
+    rescue EthRpcClient::ExecutionRevertedError => e
+      # Contract reverted - token doesn't exist
+      Rails.logger.debug "Token #{token_id} doesn't exist (contract reverted): #{e.message}"
       nil
     end
 
