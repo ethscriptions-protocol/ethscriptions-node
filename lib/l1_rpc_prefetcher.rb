@@ -2,6 +2,7 @@ require 'concurrent'
 require 'retriable'
 
 class L1RpcPrefetcher
+  include Memery
   def initialize(ethereum_client:,
                  ahead: ENV.fetch('L1_PREFETCH_FORWARD', Rails.env.test? ? 5 : 200).to_i,
                  threads: ENV.fetch('L1_PREFETCH_THREADS', 2).to_i)
@@ -17,19 +18,20 @@ class L1RpcPrefetcher
   end
 
   def ensure_prefetched(from_block)
-    to_block = from_block + @ahead
+    # Check current chain tip first
+    latest = get_latest_block_number
+
+    # Don't prefetch beyond chain tip
+    to_block = [from_block + @ahead, latest].min
+
     # Only create promises for blocks we don't have yet
     blocks_to_fetch = (from_block..to_block).reject { |n| @promises.key?(n) }
 
     return if blocks_to_fetch.empty?
 
-    # Only enqueue a reasonable number at once to avoid overwhelming the promise system
-    max_to_enqueue = [@threads * 10, 50].min
+    Rails.logger.debug "Enqueueing #{blocks_to_fetch.size} blocks: #{blocks_to_fetch.first}..#{blocks_to_fetch.last}"
 
-    to_enqueue = blocks_to_fetch.first(max_to_enqueue)
-    Rails.logger.debug "Enqueueing #{to_enqueue.size} of #{blocks_to_fetch.size} blocks: #{to_enqueue.first}..#{to_enqueue.last}"
-
-    to_enqueue.each { |block_number| enqueue_single(block_number) }
+    blocks_to_fetch.each { |block_number| enqueue_single(block_number) }
   end
 
   def fetch(block_number)
@@ -103,6 +105,11 @@ class L1RpcPrefetcher
   end
 
   private
+
+  def get_latest_block_number
+    @eth.get_block_number
+  end
+  memoize :get_latest_block_number, ttl: 12.seconds
 
   def enqueue_single(block_number)
     @promises.compute_if_absent(block_number) do

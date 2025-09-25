@@ -515,12 +515,6 @@ module EthscriptionsTestHelper
     )
     ethscription_transactions.each { |tx| tx.ethscriptions_block = template_ethscriptions_block }
 
-    mock_ethereum_client = instance_double(EthRpcClient,
-      get_block_number: block_number,
-      get_block: block_data,
-      get_transaction_receipts: receipts_data
-    )
-
     # Mock the prefetcher to return our mock data in the correct format
     eth_block = EthBlock.from_rpc_result(block_data)
     ethscriptions_block = EthscriptionsBlock.from_eth_block(eth_block)
@@ -541,7 +535,6 @@ module EthscriptionsTestHelper
     old_client = importer.ethereum_client
     old_prefetcher = importer.prefetcher
 
-    importer.ethereum_client = mock_ethereum_client
     importer.instance_variable_set(:@prefetcher, mock_prefetcher)
 
     l2_blocks, eth_blocks = importer.import_next_block
