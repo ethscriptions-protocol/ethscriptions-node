@@ -12,29 +12,61 @@ contract CollectionsManager is IProtocolHandler {
     using Clones for address;
     using LibString for string;
 
-    struct CollectionInfo {
-        address collectionContract;
-        bytes32 createTxHash;       // The ethscription that created this collection
+    // Standard NFT attribute structure
+    struct Attribute {
+        string traitType;
+        string value;
+    }
+
+
+    // Core collection metadata fields (reused across create/edit/storage)
+    struct CollectionMetadata {
         string name;
         string symbol;
-        uint256 maxSize;            // Max number of items (0 = unlimited)
-        uint256 currentSize;        // Current number of items
-        bool locked;                // Whether collection is frozen
+        uint256 totalSupply;
+        string description;
+        string logoImageUri;
+        string bannerImageUri;
+        string backgroundColor;
+        string websiteLink;
+        string twitterLink;
+        string discordLink;
+    }
+
+    // Runtime state for a collection (separate from metadata)
+    struct CollectionState {
+        address collectionContract;
+        bytes32 createTxHash;
+        uint256 currentSize;
+        bool locked;
+    }
+
+    struct CollectionItem {
+        uint256 itemIndex;
+        string name;
+        bytes32 ethscriptionId;
+        string backgroundColor;
+        string description;
+        Attribute[] attributes;   // Standard NFT attribute format
     }
 
     // Removed CollectionItem struct - now using nested mapping for multi-collection support
 
-    // Protocol operation structs for cleaner decoding
-    struct CreateCollectionOperation {
-        string name;
-        string symbol;
-        uint256 maxSize;
-        string baseUri;
+    // Protocol operation structs - reuse CollectionMetadata
+    // For create, we just decode directly into CollectionMetadata
+
+    struct AddItemsBatchOperation {
+        bytes32 collectionId;
+        ItemData[] items;
     }
 
-    struct AddItemsOperation {
-        bytes32 collectionId;
-        bytes32[] ethscriptionIds;
+    struct ItemData {
+        uint256 itemIndex;       // Proper uint256, no parsing needed
+        string name;
+        bytes32 ethscriptionId;
+        string backgroundColor;
+        string description;
+        Attribute[] attributes;  // Standard NFT attribute format
     }
 
     struct RemoveItemsOperation {
@@ -42,12 +74,32 @@ contract CollectionsManager is IProtocolHandler {
         bytes32[] ethscriptionIds;
     }
 
+    struct EditCollectionOperation {
+        bytes32 collectionId;
+        CollectionMetadata updates;  // Reuse same struct, empty strings mean no change
+    }
+
+    struct EditCollectionItemOperation {
+        bytes32 collectionId;
+        uint256 itemIndex;       // Index of the item to edit
+        string name;
+        string backgroundColor;
+        string description;
+        Attribute[] attributes;   // If non-empty, replaces all attributes. If empty, keeps existing.
+        // Note: Similar to ItemData but without ethscriptionId (can't change)
+    }
+
     address public constant erc721Template = Predeploys.ERC721_TEMPLATE;
     address public constant ethscriptions = Predeploys.ETHSCRIPTIONS;
 
     // Track deployed collections by ID
-    mapping(bytes32 => CollectionInfo) public collections;
-    mapping(bytes32 => bytes32) public createToCollection;  // createTxHash => collectionId
+    mapping(bytes32 => CollectionState) public collectionState;  // Runtime state (contract address, size, locked)
+
+    // Metadata storage
+    mapping(bytes32 => CollectionMetadata) public collectionMetadata;  // Descriptive metadata
+    mapping(bytes32 => mapping(uint256 => CollectionItem)) public collectionItems;
+    // Maps ethscription to index+1 (so 0 means not in collection, 1 means index 0, etc)
+    mapping(bytes32 => mapping(bytes32 => uint256)) public ethscriptionToIndexPlusOne;
 
     // Array of all collection IDs for enumeration
     bytes32[] public collectionIds;
@@ -79,88 +131,109 @@ contract CollectionsManager is IProtocolHandler {
 
     /// @notice Handle create_collection operation
     function op_create_collection(bytes32 txHash, bytes calldata data) external onlyEthscriptions {
-
-        // Decode the operation data
-        CreateCollectionOperation memory createOp = abi.decode(data, (CreateCollectionOperation));
+        // Decode the operation data directly into CollectionMetadata
+        CollectionMetadata memory metadata = abi.decode(data, (CollectionMetadata));
 
         // Use the ethscription hash as the collection ID
         bytes32 collectionId = txHash;
 
         // Check if collection already exists
-        require(collections[collectionId].collectionContract == address(0), "Collection already exists");
+        require(collectionState[collectionId].collectionContract == address(0), "Collection already exists");
+
+        // Get totalSupply from metadata
+        uint256 totalSupply = metadata.totalSupply;
 
         // Deploy ERC721 clone with CREATE2 using collectionId as salt for deterministic address
         address collectionContract = erc721Template.cloneDeterministic(collectionId);
 
-        // Initialize the clone
+        // Initialize the clone with basic info
         EthscriptionERC721(collectionContract).initialize(
-            createOp.name,
-            createOp.symbol,
-            collectionId,
-            ethscriptions,
-            txHash,  // Use creation tx as metadata inscription ID
-            createOp.baseUri
+            metadata.name,
+            metadata.symbol,
+            collectionId
         );
 
-        // Store collection info
-        collections[collectionId] = CollectionInfo({
+        // Store collection state
+        collectionState[collectionId] = CollectionState({
             collectionContract: collectionContract,
             createTxHash: txHash,
-            name: createOp.name,
-            symbol: createOp.symbol,
-            maxSize: createOp.maxSize,
             currentSize: 0,
             locked: false
         });
 
-        createToCollection[txHash] = collectionId;
+        // Store metadata (already decoded)
+        collectionMetadata[collectionId] = metadata;
+
         collectionIds.push(collectionId);
 
-        emit CollectionCreated(collectionId, collectionContract, createOp.name, createOp.symbol, createOp.maxSize);
+        emit CollectionCreated(collectionId, collectionContract, metadata.name, metadata.symbol, totalSupply);
     }
 
-    /// @notice Handle add_items operation
-    function op_add_items(bytes32 txHash, bytes calldata data) external onlyEthscriptions {
+    /// @notice Handle add_items_batch operation with full metadata
+    function op_add_items_batch(bytes32 txHash, bytes calldata data) external onlyEthscriptions {
         // Get who is trying to add items
         Ethscriptions ethscriptionsContract = Ethscriptions(ethscriptions);
         Ethscriptions.Ethscription memory ethscription = ethscriptionsContract.getEthscription(txHash);
         address sender = ethscription.creator;
 
-        AddItemsOperation memory addOp = abi.decode(data, (AddItemsOperation));
+        AddItemsBatchOperation memory addOp = abi.decode(data, (AddItemsBatchOperation));
 
-        CollectionInfo storage collection = collections[addOp.collectionId];
+        CollectionState storage collection = collectionState[addOp.collectionId];
+        CollectionMetadata storage metadata = collectionMetadata[addOp.collectionId];
+
         require(collection.collectionContract != address(0), "Collection does not exist");
         require(!collection.locked, "Collection is locked");
 
         // Only current owner of the collection ethscription can add items
-        // The collectionId IS the transaction hash of the collection ethscription
         address currentOwner = ethscriptionsContract.ownerOf(addOp.collectionId);
         require(currentOwner == sender, "Only collection owner can add items");
 
         // Check max size if set
-        if (collection.maxSize > 0) {
+        if (metadata.totalSupply > 0) {
             require(
-                collection.currentSize + addOp.ethscriptionIds.length <= collection.maxSize,
-                "Exceeds max size"
+                collection.currentSize + addOp.items.length <= metadata.totalSupply,
+                "Exceeds total supply"
             );
         }
 
-        // Add each ethscription to the collection
+        // Add each item with full metadata
         EthscriptionERC721 collectionContract = EthscriptionERC721(collection.collectionContract);
-        for (uint256 i = 0; i < addOp.ethscriptionIds.length; i++) {
-            bytes32 ethscriptionId = addOp.ethscriptionIds[i];
 
-            // Check that this ethscription isn't already in THIS collection
-            // The collection contract itself tracks membership
-            require(collectionContract.ethscriptionToToken(ethscriptionId) == 0, "Already in this collection");
+        for (uint256 i = 0; i < addOp.items.length; i++) {
+            ItemData memory itemData = addOp.items[i];
+            uint256 itemIndex = itemData.itemIndex;  // Already uint256
 
-            // Add to collection
-            collectionContract.addMember(ethscriptionId);
+            // Check that this item slot isn't already taken
+            require(collectionItems[addOp.collectionId][itemIndex].ethscriptionId == bytes32(0), "Item slot already taken");
+
+            // Check that this ethscription isn't already in ANY slot
+            require(ethscriptionToIndexPlusOne[addOp.collectionId][itemData.ethscriptionId] == 0, "Ethscription already in collection");
+
+            // No validation needed - Attribute struct ensures proper structure
+
+            // Store the full item data
+            CollectionItem storage newItem = collectionItems[addOp.collectionId][itemIndex];
+            newItem.itemIndex = itemIndex;
+            newItem.name = itemData.name;
+            newItem.ethscriptionId = itemData.ethscriptionId;
+            newItem.backgroundColor = itemData.backgroundColor;
+            newItem.description = itemData.description;
+
+            // Copy attributes element by element
+            for (uint256 j = 0; j < itemData.attributes.length; j++) {
+                newItem.attributes.push(itemData.attributes[j]);
+            }
+
+            // Map ethscription to its index+1 for lookups (0 means not in collection)
+            ethscriptionToIndexPlusOne[addOp.collectionId][itemData.ethscriptionId] = itemIndex + 1;
+
+            // Add to ERC721 collection with the specified token ID
+            collectionContract.addMember(itemData.ethscriptionId, itemIndex);
 
             collection.currentSize++;
         }
 
-        emit ItemsAdded(addOp.collectionId, addOp.ethscriptionIds.length, txHash);
+        emit ItemsAdded(addOp.collectionId, addOp.items.length, txHash);
     }
 
     /// @notice Handle remove_items operation
@@ -173,7 +246,7 @@ contract CollectionsManager is IProtocolHandler {
         // Decode the operation data
         RemoveItemsOperation memory removeOp = abi.decode(data, (RemoveItemsOperation));
 
-        CollectionInfo storage collection = collections[removeOp.collectionId];
+        CollectionState storage collection = collectionState[removeOp.collectionId];
         require(collection.collectionContract != address(0), "Collection does not exist");
         require(!collection.locked, "Collection is locked");
 
@@ -187,19 +260,79 @@ contract CollectionsManager is IProtocolHandler {
         for (uint256 i = 0; i < removeOp.ethscriptionIds.length; i++) {
             bytes32 ethscriptionId = removeOp.ethscriptionIds[i];
 
-            // Check that this ethscription is in this collection
-            // The collection contract itself tracks membership
-            require(
-                collectionContract.ethscriptionToToken(ethscriptionId) != 0,
-                "Not in this collection"
-            );
+            // Get the token ID for this ethscription
+            uint256 tokenIdPlusOne = ethscriptionToIndexPlusOne[removeOp.collectionId][ethscriptionId];
+            require(tokenIdPlusOne != 0, "Not in this collection");
+            uint256 tokenId = tokenIdPlusOne - 1;
 
-            // Remove from collection
-            collectionContract.removeMember(ethscriptionId);
+            // Clear the item data
+            delete collectionItems[removeOp.collectionId][tokenId];
+            delete ethscriptionToIndexPlusOne[removeOp.collectionId][ethscriptionId];
+
+            // Remove from ERC721 collection
+            collectionContract.removeMember(ethscriptionId, tokenId);
             collection.currentSize--;
         }
 
         emit ItemsRemoved(removeOp.collectionId, removeOp.ethscriptionIds.length, txHash);
+    }
+
+    /// @notice Handle edit_collection operation
+    function op_edit_collection(bytes32 txHash, bytes calldata data) external onlyEthscriptions {
+        Ethscriptions ethscriptionsContract = Ethscriptions(ethscriptions);
+        Ethscriptions.Ethscription memory ethscription = ethscriptionsContract.getEthscription(txHash);
+        address sender = ethscription.creator;
+
+        EditCollectionOperation memory editOp = abi.decode(data, (EditCollectionOperation));
+
+        CollectionMetadata storage metadata = collectionMetadata[editOp.collectionId];
+        CollectionState storage collection = collectionState[editOp.collectionId];
+        require(collection.collectionContract != address(0), "Collection does not exist");
+        require(!collection.locked, "Collection is locked");
+
+        address currentOwner = ethscriptionsContract.ownerOf(editOp.collectionId);
+        require(currentOwner == sender, "Only collection owner can edit");
+
+        // Update metadata fields (only non-empty values update)
+        if (bytes(editOp.updates.description).length > 0) metadata.description = editOp.updates.description;
+        if (bytes(editOp.updates.logoImageUri).length > 0) metadata.logoImageUri = editOp.updates.logoImageUri;
+        if (bytes(editOp.updates.bannerImageUri).length > 0) metadata.bannerImageUri = editOp.updates.bannerImageUri;
+        if (bytes(editOp.updates.backgroundColor).length > 0) metadata.backgroundColor = editOp.updates.backgroundColor;
+        if (bytes(editOp.updates.websiteLink).length > 0) metadata.websiteLink = editOp.updates.websiteLink;
+        if (bytes(editOp.updates.twitterLink).length > 0) metadata.twitterLink = editOp.updates.twitterLink;
+        if (bytes(editOp.updates.discordLink).length > 0) metadata.discordLink = editOp.updates.discordLink;
+    }
+
+    /// @notice Handle edit_collection_item operation
+    function op_edit_collection_item(bytes32 txHash, bytes calldata data) external onlyEthscriptions {
+        Ethscriptions ethscriptionsContract = Ethscriptions(ethscriptions);
+        Ethscriptions.Ethscription memory ethscription = ethscriptionsContract.getEthscription(txHash);
+        address sender = ethscription.creator;
+
+        EditCollectionItemOperation memory editOp = abi.decode(data, (EditCollectionItemOperation));
+        uint256 itemIndex = editOp.itemIndex;  // Already uint256
+
+        CollectionState storage collection = collectionState[editOp.collectionId];
+        require(collection.collectionContract != address(0), "Collection does not exist");
+        require(!collection.locked, "Collection is locked");
+
+        address currentOwner = ethscriptionsContract.ownerOf(editOp.collectionId);
+        require(currentOwner == sender, "Only collection owner can edit items");
+
+        CollectionItem storage item = collectionItems[editOp.collectionId][itemIndex];
+        require(item.ethscriptionId != bytes32(0), "Item does not exist");
+
+        // Update item fields (only non-empty values update)
+        if (bytes(editOp.name).length > 0) item.name = editOp.name;
+        if (bytes(editOp.backgroundColor).length > 0) item.backgroundColor = editOp.backgroundColor;
+        if (bytes(editOp.description).length > 0) item.description = editOp.description;
+        if (editOp.attributes.length > 0) {
+            // Clear existing attributes and copy new ones element by element
+            delete item.attributes;
+            for (uint256 i = 0; i < editOp.attributes.length; i++) {
+                item.attributes.push(editOp.attributes[i]);
+            }
+        }
     }
 
     /// @notice Handle lock_collection operation
@@ -212,7 +345,7 @@ contract CollectionsManager is IProtocolHandler {
         // Decode just the collection ID
         bytes32 collectionId = abi.decode(data, (bytes32));
 
-        CollectionInfo storage collection = collections[collectionId];
+        CollectionState storage collection = collectionState[collectionId];
         require(collection.collectionContract != address(0), "Collection does not exist");
 
         // Only current owner of the collection ethscription can lock
@@ -227,12 +360,11 @@ contract CollectionsManager is IProtocolHandler {
     /// @notice Handle sync_ownership operation to sync ERC721 ownership with Ethscription ownership
     /// @dev Requires specifying the collection ID to sync for, to avoid iterating over unbounded user data
     function op_sync_ownership(bytes32, bytes calldata data) external onlyEthscriptions {
-
         // User must specify which collection to sync for
         // Decode the operation: collection ID + ethscription IDs to sync
         (bytes32 collectionId, bytes32[] memory ethscriptionIds) = abi.decode(data, (bytes32, bytes32[]));
 
-        CollectionInfo memory collection = collections[collectionId];
+        CollectionState memory collection = collectionState[collectionId];
         require(collection.collectionContract != address(0), "Collection does not exist");
 
         EthscriptionERC721 collectionContract = EthscriptionERC721(collection.collectionContract);
@@ -240,11 +372,12 @@ contract CollectionsManager is IProtocolHandler {
         // Sync ownership for specified ethscriptions in this collection
         for (uint256 i = 0; i < ethscriptionIds.length; i++) {
             bytes32 ethscriptionId = ethscriptionIds[i];
-            uint256 tokenId = collectionContract.ethscriptionToToken(ethscriptionId);
+            uint256 tokenIdPlusOne = ethscriptionToIndexPlusOne[collectionId][ethscriptionId];
 
-            if (tokenId != 0) {
+            if (tokenIdPlusOne != 0) {
                 // This ethscription is in the collection, sync its ownership
-                collectionContract.syncOwnership(tokenId);
+                uint256 tokenId = tokenIdPlusOne - 1;
+                collectionContract.syncOwnership(tokenId, ethscriptionId);
             }
         }
     }
@@ -260,7 +393,7 @@ contract CollectionsManager is IProtocolHandler {
 
         // // If this ethscription is part of a collection, sync ownership
         // if (item.collectionId != bytes32(0)) {
-        //     CollectionInfo memory collection = collections[item.collectionId];
+        //     CollectionState memory collection = collectionState[item.collectionId];
         //     if (collection.collectionContract != address(0)) {
         //         // Sync the ownership in the ERC721 contract
         //         EthscriptionERC721(collection.collectionContract).syncOwnership(item.tokenId);
@@ -271,27 +404,35 @@ contract CollectionsManager is IProtocolHandler {
     // View functions
 
     function getCollectionAddress(bytes32 collectionId) external view returns (address) {
-        return collections[collectionId].collectionContract;
+        return collectionState[collectionId].collectionContract;
     }
 
-    function getCollectionInfo(bytes32 collectionId) external view returns (CollectionInfo memory) {
-        return collections[collectionId];
+    function getCollectionState(bytes32 collectionId) external view returns (CollectionState memory) {
+        return collectionState[collectionId];
     }
 
-    // Removed getCollectionItem - use getEthscriptionCollections instead
+    function getCollectionItem(bytes32 collectionId, uint256 itemIndex) external view returns (CollectionItem memory) {
+        return collectionItems[collectionId][itemIndex];
+    }
+
+    function getCollectionMetadata(bytes32 collectionId) external view returns (CollectionMetadata memory) {
+        return collectionMetadata[collectionId];
+    }
 
     function isInCollection(bytes32 ethscriptionId, bytes32 collectionId) external view returns (bool) {
-        CollectionInfo memory collection = collections[collectionId];
-        if (collection.collectionContract == address(0)) return false;
+        return ethscriptionToIndexPlusOne[collectionId][ethscriptionId] != 0;
+    }
 
-        EthscriptionERC721 collectionContract = EthscriptionERC721(collection.collectionContract);
-        return collectionContract.ethscriptionToToken(ethscriptionId) != 0;
+    function getEthscriptionTokenId(bytes32 ethscriptionId, bytes32 collectionId) external view returns (uint256) {
+        uint256 tokenIdPlusOne = ethscriptionToIndexPlusOne[collectionId][ethscriptionId];
+        require(tokenIdPlusOne != 0, "Not in collection");
+        return tokenIdPlusOne - 1;
     }
 
     function predictCollectionAddress(bytes32 collectionId) external view returns (address) {
         // Check if already deployed
-        if (collections[collectionId].collectionContract != address(0)) {
-            return collections[collectionId].collectionContract;
+        if (collectionState[collectionId].collectionContract != address(0)) {
+            return collectionState[collectionId].collectionContract;
         }
 
         // Predict using CREATE2
@@ -300,14 +441,6 @@ contract CollectionsManager is IProtocolHandler {
 
     function getAllCollections() external view returns (bytes32[] memory) {
         return collectionIds;
-    }
-
-    // IProtocolHandler implementation
-
-    /// @notice Generic sync entrypoint for protocol-specific operations
-    /// @dev Not used for collections protocol
-    function sync(bytes calldata) external pure override {
-        revert("Not implemented");
     }
 
     /// @notice Returns human-readable protocol name

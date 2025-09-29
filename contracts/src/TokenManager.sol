@@ -253,15 +253,6 @@ contract TokenManager is IProtocolHandler {
         return tokenItems[ethscriptionTxHash];
     }
 
-    // IProtocolHandler implementation
-
-    /// @notice Generic sync entrypoint for protocol-specific operations
-    /// @dev Not used for token protocol
-    function sync(bytes calldata) external pure override {
-        // Not implemented for token protocol
-        revert("Not implemented");
-    }
-
     /// @notice Returns human-readable protocol name
     /// @return The protocol name
     function protocolName() public pure override returns (string memory) {

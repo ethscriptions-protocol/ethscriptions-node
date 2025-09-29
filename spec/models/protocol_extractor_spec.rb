@@ -126,7 +126,17 @@ RSpec.describe ProtocolExtractor do
 
         result = ProtocolExtractor.for_calldata(content_uri)
 
-        expect(result).to eq(['deploy'.b, 'erc-20'.b, 'punk'.b, 21000000, 1000, 0])
+        expect(result[0]).to eq('erc-20'.b)  # protocol
+        expect(result[1]).to eq('deploy'.b)   # operation
+        expect(result[2]).not_to be_empty     # encoded data
+
+        # Verify the encoded deploy params - now as tuple for struct compatibility
+        types = ['(string,uint256,uint256)']
+        decoded_tuple = Eth::Abi.decode(types, result[2])
+        decoded = decoded_tuple[0]
+        expect(decoded[0]).to eq('punk'.b)    # tick
+        expect(decoded[1]).to eq(21000000)    # max
+        expect(decoded[2]).to eq(1000)        # lim
       end
 
       it 'returns token params for erc-20 mint' do
@@ -134,7 +144,17 @@ RSpec.describe ProtocolExtractor do
 
         result = ProtocolExtractor.for_calldata(content_uri)
 
-        expect(result).to eq(['mint'.b, 'erc-20'.b, 'punk'.b, 1, 0, 100])
+        expect(result[0]).to eq('erc-20'.b)  # protocol
+        expect(result[1]).to eq('mint'.b)     # operation
+        expect(result[2]).not_to be_empty     # encoded data
+
+        # Verify the encoded mint params - now as tuple for struct compatibility
+        types = ['(string,uint256,uint256)']
+        decoded_tuple = Eth::Abi.decode(types, result[2])
+        decoded = decoded_tuple[0]
+        expect(decoded[0]).to eq('punk'.b)    # tick
+        expect(decoded[1]).to eq(1)           # id
+        expect(decoded[2]).to eq(100)         # amt
       end
 
       it 'returns default params for non-protocol content' do
@@ -142,16 +162,24 @@ RSpec.describe ProtocolExtractor do
 
         result = ProtocolExtractor.for_calldata(content_uri)
 
-        expect(result).to eq([''.b, ''.b, ''.b, 0, 0, 0])
+        expect(result).to eq([''.b, ''.b, ''.b])
       end
 
-      it 'returns default params for other protocols (temporary)' do
-        # Until we update the contract, other protocols return default params
+      it 'returns extracted params for generic protocols' do
+        # Generic protocols now return actual extracted data
         content_uri = 'data:,{"p":"collections","op":"create","name":"Test"}'
 
         result = ProtocolExtractor.for_calldata(content_uri)
 
-        expect(result).to eq([''.b, ''.b, ''.b, 0, 0, 0])
+        expect(result[0]).to eq('collections'.b)  # protocol
+        expect(result[1]).to eq('create'.b)        # operation
+        expect(result[2]).not_to be_empty          # encoded data
+
+        # Verify the encoded params - now as tuple
+        types = ['(string)']
+        decoded_tuple = Eth::Abi.decode(types, result[2])
+        decoded = decoded_tuple[0]
+        expect(decoded[0]).to eq('Test')
       end
 
       it 'returns default params for malformed token protocol' do
@@ -159,7 +187,8 @@ RSpec.describe ProtocolExtractor do
 
         result = ProtocolExtractor.for_calldata(content_uri)
 
-        expect(result).to eq([''.b, ''.b, ''.b, 0, 0, 0])
+        # Malformed token protocol returns empty defaults
+        expect(result).to eq([''.b, ''.b, ''.b])
       end
     end
 
@@ -176,7 +205,7 @@ RSpec.describe ProtocolExtractor do
 
       it 'falls back to generic for erc-20 with non-standard operations' do
         # erc-20 with invalid operation should not match token protocol
-        content_uri = 'data:,{"p":"erc-20","op":"transfer","tick":"test","to":"0x123","amt":"100"}'
+        content_uri = 'data:,{"p":"erc-20","op":"transfer","tick":"test","to":"0x1234567890123456789012345678901234567890","amt":"100"}'
 
         result = ProtocolExtractor.extract(content_uri)
 

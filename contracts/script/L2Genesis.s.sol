@@ -55,7 +55,7 @@ contract GenesisEthscriptions is Ethscriptions {
             creator: creator,
             initialOwner: params.initialOwner,
             previousOwner: creator,
-            ethscriptionNumber: totalSupply,
+            ethscriptionNumber: totalSupply(),
             createdAt: createdAt,
             l1BlockNumber: l1BlockNumber,
             l2BlockNumber: 0,  // Genesis ethscriptions have no L2 block
@@ -63,12 +63,12 @@ contract GenesisEthscriptions is Ethscriptions {
         });
 
         // Use ethscription number as token ID
-        tokenId = totalSupply;
+        tokenId = totalSupply();
 
         // Store the mapping from token ID to transaction hash
         tokenIdToTransactionHash[tokenId] = params.transactionHash;
 
-        totalSupply++;
+        // Token count is automatically tracked by enumerable's _update
 
         // If initial owner is zero (burned), mint to creator then burn
         if (params.initialOwner == address(0)) {

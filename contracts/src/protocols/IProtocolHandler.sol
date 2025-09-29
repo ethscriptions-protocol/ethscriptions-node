@@ -15,10 +15,6 @@ interface IProtocolHandler {
         address to
     ) external;
 
-    /// @notice Generic sync entrypoint for protocol-specific operations
-    /// @param data Protocol-specific sync data
-    function sync(bytes calldata data) external;
-
     /// @notice Returns human-readable protocol name
     /// @return The protocol name (e.g., "erc-20", "collections")
     function protocolName() external pure returns (string memory);

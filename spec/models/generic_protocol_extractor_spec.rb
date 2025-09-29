@@ -13,14 +13,16 @@ RSpec.describe GenericProtocolExtractor do
         expect(protocol).to eq('collections'.b)
         expect(operation).to eq('create_collection'.b)
 
-        # Decode to verify encoding
-        types = ['string', 'uint256', 'string', 'string']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        # Decode to verify encoding - order matches JSON field order
+        # Now encoded as a tuple for struct compatibility
+        types = ['(string,string,uint256,string)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]  # Extract tuple contents
 
-        expect(decoded[0]).to eq('https://api.example.com/') # baseUri (sorted first)
-        expect(decoded[1]).to eq(10000) # maxSupply
-        expect(decoded[2]).to eq('My NFTs') # name
-        expect(decoded[3]).to eq('MNFT') # symbol
+        expect(decoded[0]).to eq('My NFTs') # name (first in JSON)
+        expect(decoded[1]).to eq('MNFT') # symbol (second in JSON)
+        expect(decoded[2]).to eq(10000) # maxSupply (third in JSON)
+        expect(decoded[3]).to eq('https://api.example.com/') # baseUri (fourth in JSON)
       end
 
       it 'handles add_members operation with address arrays' do
@@ -31,9 +33,10 @@ RSpec.describe GenericProtocolExtractor do
         expect(protocol).to eq('collections'.b)
         expect(operation).to eq('add_members'.b)
 
-        # Arrays are supported
-        types = ['address', 'address[]']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        # Arrays are supported - now encoded as tuple
+        types = ['(address,address[])']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
         expect(decoded[0].downcase).to eq('0x1234567890abcdef1234567890abcdef12345678')
         expect(decoded[1][0].downcase).to eq('0x742d35cc6634c0532925a3b844bc9e7595f0beb1')
@@ -50,40 +53,47 @@ RSpec.describe GenericProtocolExtractor do
         expect(protocol).to eq('governance'.b)
         expect(operation).to eq('create_proposal'.b)
 
-        types = ['string[]', 'uint256', 'string', 'uint256']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        # Order matches JSON field order - now encoded as tuple
+        types = ['(string,uint256,uint256,string[])']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
-        expect(decoded[0]).to eq(['Yes', 'No', 'Abstain']) # choices
-        expect(decoded[1]).to eq(100) # quorum
-        expect(decoded[2]).to eq('Upgrade Protocol') # title
-        expect(decoded[3]).to eq(86400) # votingPeriod
+        expect(decoded[0]).to eq('Upgrade Protocol') # title (first in JSON)
+        expect(decoded[1]).to eq(86400) # votingPeriod (second in JSON)
+        expect(decoded[2]).to eq(100) # quorum (third in JSON)
+        expect(decoded[3]).to eq(['Yes', 'No', 'Abstain']) # choices (fourth in JSON)
       end
 
-      it 'handles vote operation with boolean strings' do
-        content_uri = 'data:,{"p":"governance","op":"vote","proposalId":"prop123","support":"true","reason":"Good idea"}'
+      it 'handles vote operation with JSON boolean' do
+        # Use JSON boolean, not string "true"
+        content_uri = 'data:,{"p":"governance","op":"vote","proposalId":"prop123","support":true,"reason":"Good idea"}'
 
         protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
 
         expect(protocol).to eq('governance'.b)
         expect(operation).to eq('vote'.b)
 
-        types = ['string', 'string', 'bool']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        # JSON boolean true becomes bool, not string
+        types = ['(string,bool,string)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
-        expect(decoded[0]).to eq('prop123')
-        expect(decoded[1]).to eq('Good idea')
-        expect(decoded[2]).to eq(true)
+        expect(decoded[0]).to eq('prop123') # proposalId (first in JSON)
+        expect(decoded[1]).to eq(true) # support as boolean (second in JSON)
+        expect(decoded[2]).to eq('Good idea') # reason (third in JSON)
       end
 
-      it 'handles false boolean strings' do
+      it 'keeps boolean strings as strings' do
+        # String "false" remains a string - use JSON false for booleans
         content_uri = 'data:,{"p":"test","op":"toggle","enabled":"false"}'
 
         protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
 
-        types = ['bool']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        types = ['(string)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
-        expect(decoded[0]).to eq(false)
+        expect(decoded[0]).to eq('false') # String "false", not boolean
       end
 
       it 'handles native JSON booleans' do
@@ -91,8 +101,9 @@ RSpec.describe GenericProtocolExtractor do
 
         protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
 
-        types = ['bool', 'bool']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        types = ['(bool,bool)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
         expect(decoded[0]).to eq(true)  # active
         expect(decoded[1]).to eq(false) # disabled
@@ -123,8 +134,9 @@ RSpec.describe GenericProtocolExtractor do
 
         protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
 
-        types = ['address']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        types = ['(address)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
         expect(decoded[0].downcase).to eq('0x742d35cc6634c0532925a3b844bc9e7595f0beb1')
       end
@@ -134,8 +146,9 @@ RSpec.describe GenericProtocolExtractor do
 
         protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
 
-        types = ['bytes32']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        types = ['(bytes32)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
         expect(decoded[0]).to eq(ByteString.from_hex('0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef').to_bin)
       end
@@ -174,8 +187,9 @@ RSpec.describe GenericProtocolExtractor do
         result = GenericProtocolExtractor.extract(content_uri)
         # This should be treated as a regular string since it doesn't match hex pattern
         protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
-        types = ['string']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        types = ['(string)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
         expect(decoded[0]).to eq('0xZZZZ')
       end
 
@@ -184,12 +198,14 @@ RSpec.describe GenericProtocolExtractor do
 
         protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
 
-        types = ['uint256', 'uint256', 'uint256']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        types = ['(uint256,uint256,uint256)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
-        expect(decoded[0]).to eq(123)     # amount
-        expect(decoded[1]).to eq(999999)  # large
-        expect(decoded[2]).to eq(0)       # zero
+        # Order matches JSON field order
+        expect(decoded[0]).to eq(123)     # amount (first in JSON)
+        expect(decoded[1]).to eq(0)       # zero (second in JSON)
+        expect(decoded[2]).to eq(999999)  # large (third in JSON)
       end
 
       it 'rejects string numbers with leading zeros' do
@@ -198,10 +214,24 @@ RSpec.describe GenericProtocolExtractor do
         result = GenericProtocolExtractor.extract(content_uri)
 
         # Should treat "01" as a string, not a number
-        types = ['string']
-        decoded = Eth::Abi.decode(types, result[2])
+        types = ['(string)']
+        decoded_tuple = Eth::Abi.decode(types, result[2])
+        decoded = decoded_tuple[0]
         expect(decoded[0]).to eq("01")
       end
+      
+      it 'rejects string numbers that are all 0s' do
+        content_uri = 'data:,{"p":"test","op":"action","amount":"000"}'
+
+        result = GenericProtocolExtractor.extract(content_uri)
+
+        # Should treat "000" as a string, not a number
+        types = ['(string)']
+        decoded_tuple = Eth::Abi.decode(types, result[2])
+        decoded = decoded_tuple[0]
+        expect(decoded[0]).to eq("000")
+      end
+
 
       it 'rejects null values' do
         content_uri = 'data:,{"p":"test","op":"action","optional":null,"required":"value"}'
@@ -222,8 +252,9 @@ RSpec.describe GenericProtocolExtractor do
 
         protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
 
-        types = ['uint256[]']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        types = ['(uint256[])']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
         expect(decoded[0]).to eq([])
       end
@@ -233,11 +264,16 @@ RSpec.describe GenericProtocolExtractor do
 
         protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
 
-        types = ['bytes32[]']
-        decoded = Eth::Abi.decode(types, encoded_data)
+        types = ['(bytes32[])']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
 
-        expect(decoded[0][0]).to eq('0x1111111111111111111111111111111111111111111111111111111111111111')
-        expect(decoded[0][1]).to eq('0x2222222222222222222222222222222222222222222222222222222222222222')
+        # bytes32 are decoded as binary strings, not hex strings
+        expected1 = ["1111111111111111111111111111111111111111111111111111111111111111"].pack('H*')
+        expected2 = ["2222222222222222222222222222222222222222222222222222222222222222"].pack('H*')
+
+        expect(decoded[0][0]).to eq(expected1)
+        expect(decoded[0][1]).to eq(expected2)
       end
     end
 
@@ -372,14 +408,27 @@ RSpec.describe GenericProtocolExtractor do
         expect(encoded_data).to eq(''.b)
       end
 
-      it 'sorts keys for deterministic encoding' do
+      it 'preserves JSON field order (does NOT sort keys)' do
         content_uri1 = 'data:,{"p":"test","op":"action","z":"last","a":"first","m":"middle"}'
         content_uri2 = 'data:,{"p":"test","op":"action","a":"first","m":"middle","z":"last"}'
 
         _, _, data1 = GenericProtocolExtractor.extract(content_uri1)
         _, _, data2 = GenericProtocolExtractor.extract(content_uri2)
 
-        expect(data1).to eq(data2) # Same encoding regardless of input order
+        # Different field orders produce different encodings
+        # This is intentional - users control order to match Solidity structs
+        expect(data1).not_to eq(data2)
+
+        # Verify the order is preserved as expected
+        types1 = ['(string,string,string)'] # z, a, m order
+        decoded1_tuple = Eth::Abi.decode(types1, data1)
+        decoded1 = decoded1_tuple[0]
+        expect(decoded1).to eq(['last', 'first', 'middle'])
+
+        types2 = ['(string,string,string)'] # a, m, z order
+        decoded2_tuple = Eth::Abi.decode(types2, data2)
+        decoded2 = decoded2_tuple[0]
+        expect(decoded2).to eq(['first', 'middle', 'last'])
       end
     end
 

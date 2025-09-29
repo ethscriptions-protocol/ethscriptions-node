@@ -3,8 +3,8 @@ pragma solidity 0.8.24;
 
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC721Metadata} from "@openzeppelin/contracts/token/ERC721/extensions/IERC721Metadata.sol";
+import {IERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
 import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
@@ -18,13 +18,14 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
  * Simplifications from standard ERC-721:
  * - No safe transfer functionality (no onERC721Received checks)
  * - No approval functionality (approve, getApproved, setApprovalForAll removed)
- * - No name/symbol storage (must be overridden by child)
  * - No tokenURI implementation (must be overridden by child)
  * - No burn function (transfer to address(0) instead)
  * - Keeps only core transfer and ownership logic
  */
-abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgradeable, ERC165Upgradeable, IERC721, IERC721Metadata, IERC721Errors {
-    using Strings for uint256;
+abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgradeable, ERC165Upgradeable, IERC721, IERC721Metadata, IERC721Enumerable, IERC721Errors {
+    // Errors for enumerable functionality
+    error ERC721OutOfBoundsIndex(address owner, uint256 index);
+    error ERC721EnumerableForbiddenBatchMint();
 
     /// @custom:storage-location erc7201:ethscriptions.storage.ERC721
     struct ERC721Storage {
@@ -50,6 +51,23 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
         }
     }
 
+    /// @custom:storage-location erc7201:openzeppelin.storage.ERC721Enumerable
+    struct ERC721EnumerableStorage {
+        mapping(address owner => mapping(uint256 index => uint256)) _ownedTokens;
+        mapping(uint256 tokenId => uint256) _ownedTokensIndex;
+        uint256[] _allTokens;
+        mapping(uint256 tokenId => uint256) _allTokensIndex;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("openzeppelin.storage.ERC721Enumerable")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant ERC721EnumerableStorageLocation = 0x645e039705490088daad89bae25049a34f4a9072d398537b1ab2425f24cbed00;
+
+    function _getERC721EnumerableStorage() private pure returns (ERC721EnumerableStorage storage $) {
+        assembly {
+            $.slot := ERC721EnumerableStorageLocation
+        }
+    }
+
     /**
      * @dev Initializes the contract.
      */
@@ -70,6 +88,7 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
         return
             interfaceId == type(IERC721).interfaceId ||
             interfaceId == type(IERC721Metadata).interfaceId ||
+            interfaceId == type(IERC721Enumerable).interfaceId ||
             super.supportsInterface(interfaceId);
     }
 
@@ -113,6 +132,30 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
      */
     function tokenURI(uint256 tokenId) public view virtual returns (string memory);
 
+    /// @inheritdoc IERC721Enumerable
+    function totalSupply() public view virtual returns (uint256) {
+        ERC721EnumerableStorage storage $ = _getERC721EnumerableStorage();
+        return $._allTokens.length;
+    }
+
+    /// @inheritdoc IERC721Enumerable
+    function tokenOfOwnerByIndex(address owner, uint256 index) public view virtual returns (uint256) {
+        ERC721EnumerableStorage storage $ = _getERC721EnumerableStorage();
+        if (index >= balanceOf(owner)) {
+            revert ERC721OutOfBoundsIndex(owner, index);
+        }
+        return $._ownedTokens[owner][index];
+    }
+
+    /// @inheritdoc IERC721Enumerable
+    function tokenByIndex(uint256 index) public view virtual returns (uint256) {
+        ERC721EnumerableStorage storage $ = _getERC721EnumerableStorage();
+        if (index >= totalSupply()) {
+            revert ERC721OutOfBoundsIndex(address(0), index);
+        }
+        return $._allTokens[index];
+    }
+
     /**
      * @dev Approval functions removed - not needed for Ethscriptions.
      * These can be added back in child contracts if needed.
@@ -121,7 +164,10 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
         revert("Approvals not supported");
     }
 
-    function getApproved(uint256) public view virtual returns (address) {
+    function getApproved(uint256 tokenId) public view virtual returns (address) {
+        if (!_tokenExists(tokenId)) {
+            revert ERC721NonexistentToken(tokenId);
+        }
         return address(0);
     }
 
@@ -197,18 +243,27 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
             _checkAuthorized(from, auth, tokenId);
         }
 
-        // Handle transfer/mint
+        // Handle transfer/mint - enumeration helpers handle balance updates
         if (existed) {
-            // This is a transfer - update from balance
-            $._balances[from] -= 1;
+            // This is a transfer
+            if (from != to) {
+                // Remove from old owner (also decrements from's balance)
+                _removeTokenFromOwnerEnumeration(from, tokenId);
+                // Add to new owner (also increments to's balance)
+                _addTokenToOwnerEnumeration(to, tokenId);
+            }
         } else {
-            // This is a mint - mark as existing
+            // This is a mint
             $._existsFlag[tokenId] = true;
+
+            // Add to all tokens enumeration
+            _addTokenToAllTokensEnumeration(tokenId);
+
+            // Add to owner enumeration (also increments balance)
+            _addTokenToOwnerEnumeration(to, tokenId);
         }
 
-        // Update to balance
-        $._balances[to] += 1;
-
+        // Update owner and emit
         $._owners[tokenId] = to;
         emit Transfer(from, to, tokenId);
 
@@ -275,6 +330,127 @@ abstract contract ERC721EthscriptionsUpgradeable is Initializable, ContextUpgrad
      */
     function _setTokenExists(uint256 tokenId, bool exists) internal {
         ERC721Storage storage $ = _getERC721Storage();
+
+        // If removing a token, also remove from enumeration and update balance
+        if (!exists && $._existsFlag[tokenId]) {
+            address owner = $._owners[tokenId];
+
+            // Remove from enumerations (balance is decremented inside _removeTokenFromOwnerEnumeration)
+            _removeTokenFromOwnerEnumeration(owner, tokenId);
+            _removeTokenFromAllTokensEnumeration(tokenId);
+
+            // Clear owner storage for cleanliness
+            delete $._owners[tokenId];
+        }
+
         $._existsFlag[tokenId] = exists;
+    }
+
+    /**
+     * @dev Override to forbid batch minting which would break enumeration.
+     */
+    function _increaseBalance(address account, uint128 amount) internal virtual {
+        if (amount > 0) {
+            revert ERC721EnumerableForbiddenBatchMint();
+        }
+        // Note: We don't have a parent _increaseBalance to call since we're not inheriting from ERC721Upgradeable
+        // This function exists just to prevent batch minting attempts
+    }
+
+    /**
+     * @dev Private function to add a token to this extension's ownership-tracking data structures.
+     * Also increments the owner's balance.
+     * @param to address representing the new owner of the given token ID
+     * @param tokenId uint256 ID of the token to be added to the tokens list of the given address
+     */
+    function _addTokenToOwnerEnumeration(address to, uint256 tokenId) private {
+        ERC721Storage storage $ = _getERC721Storage();
+        ERC721EnumerableStorage storage $enum = _getERC721EnumerableStorage();
+
+        // Use current balance as the index for the new token
+        uint256 length = $._balances[to];
+        $enum._ownedTokens[to][length] = tokenId;
+        $enum._ownedTokensIndex[tokenId] = length;
+
+        // Now increment the balance
+        unchecked {
+            $._balances[to] += 1;
+        }
+    }
+
+    /**
+     * @dev Private function to add a token to this extension's token tracking data structures.
+     * @param tokenId uint256 ID of the token to be added to the tokens list
+     */
+    function _addTokenToAllTokensEnumeration(uint256 tokenId) private {
+        ERC721EnumerableStorage storage $ = _getERC721EnumerableStorage();
+        $._allTokensIndex[tokenId] = $._allTokens.length;
+        $._allTokens.push(tokenId);
+    }
+
+    /**
+     * @dev Private function to remove a token from this extension's ownership-tracking data structures.
+     * Also decrements the owner's balance.
+     * Note that while the token is not assigned a new owner, the `_ownedTokensIndex` mapping is _not_ updated: this allows for
+     * gas optimizations e.g. when performing a transfer operation (avoiding double writes).
+     * This has O(1) time complexity, but alters the order of the _ownedTokens array.
+     * @param from address representing the previous owner of the given token ID
+     * @param tokenId uint256 ID of the token to be removed from the tokens list of the given address
+     */
+    function _removeTokenFromOwnerEnumeration(address from, uint256 tokenId) private {
+        ERC721Storage storage $ = _getERC721Storage();
+        ERC721EnumerableStorage storage $enum = _getERC721EnumerableStorage();
+
+        // To prevent a gap in from's tokens array, we store the last token in the index of the token to delete, and
+        // then delete the last slot (swap and pop).
+
+        // First decrement the balance
+        unchecked {
+            $._balances[from] -= 1;
+        }
+
+        // Now use the updated balance as the last index
+        uint256 lastTokenIndex = $._balances[from];
+        uint256 tokenIndex = $enum._ownedTokensIndex[tokenId];
+
+        mapping(uint256 index => uint256) storage _ownedTokensByOwner = $enum._ownedTokens[from];
+
+        // When the token to delete is the last token, the swap operation is unnecessary
+        if (tokenIndex != lastTokenIndex) {
+            uint256 lastTokenId = _ownedTokensByOwner[lastTokenIndex];
+
+            _ownedTokensByOwner[tokenIndex] = lastTokenId; // Move the last token to the slot of the to-delete token
+            $enum._ownedTokensIndex[lastTokenId] = tokenIndex; // Update the moved token's index
+        }
+
+        // This also deletes the contents at the last position of the array
+        delete $enum._ownedTokensIndex[tokenId];
+        delete _ownedTokensByOwner[lastTokenIndex];
+    }
+
+    /**
+     * @dev Private function to remove a token from this extension's token tracking data structures.
+     * This has O(1) time complexity, but alters the order of the _allTokens array.
+     * @param tokenId uint256 ID of the token to be removed from the tokens list
+     */
+    function _removeTokenFromAllTokensEnumeration(uint256 tokenId) private {
+        ERC721EnumerableStorage storage $ = _getERC721EnumerableStorage();
+        // To prevent a gap in the tokens array, we store the last token in the index of the token to delete, and
+        // then delete the last slot (swap and pop).
+
+        uint256 lastTokenIndex = $._allTokens.length - 1;
+        uint256 tokenIndex = $._allTokensIndex[tokenId];
+
+        // When the token to delete is the last token, the swap operation is unnecessary. However, since this occurs so
+        // rarely (when the last minted token is burnt) that we still do the swap here to avoid the gas cost of adding
+        // an 'if' statement (like in _removeTokenFromOwnerEnumeration)
+        uint256 lastTokenId = $._allTokens[lastTokenIndex];
+
+        $._allTokens[tokenIndex] = lastTokenId; // Move the last token to the slot of the to-delete token
+        $._allTokensIndex[lastTokenId] = tokenIndex; // Update the moved token's index
+
+        // This also deletes the contents at the last position of the array
+        delete $._allTokensIndex[tokenId];
+        $._allTokens.pop();
     }
 }

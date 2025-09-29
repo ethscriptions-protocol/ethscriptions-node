@@ -22,18 +22,6 @@ class ProtocolExtractor
     \}\z
   /x.freeze
 
-  # Generic JSON protocol - has p and op fields
-  # More flexible format for new protocols
-  GENERIC_PROTOCOL_REGEX = /\A
-    data:,\{
-      (?:.*?)
-      "p":"([a-z0-9\-_]+)",
-      (?:.*?)
-      "op":"([a-z0-9\-_]+)"
-      (?:.*?)
-    \}
-  \z/x.freeze
-
   # Default return values for different scenarios
   TOKEN_DEFAULT_PARAMS = TokenParamsExtractor::DEFAULT_PARAMS
   GENERIC_DEFAULT_PARAMS = GenericProtocolExtractor::DEFAULT_PARAMS
@@ -66,8 +54,19 @@ class ProtocolExtractor
   end
 
   def self.matches_generic_protocol?(content_uri)
-    # Check if it has p and op fields (any protocol)
-    content_uri.match?(GENERIC_PROTOCOL_REGEX)
+    # Check if it has p and op fields by parsing JSON
+    # This supports multi-line JSON and is more reliable than regex
+    begin
+      json_str = content_uri[6..] # Remove 'data:,'
+      data = JSON.parse(json_str, max_nesting: 10)
+
+      # Must be an object with p and op fields
+      data.is_a?(Hash) &&
+        data.key?('p') && data['p'].is_a?(String) &&
+        data.key?('op') && data['op'].is_a?(String)
+    rescue JSON::ParserError
+      false
+    end
   end
 
   def self.extract_token_protocol(content_uri)
@@ -166,12 +165,18 @@ class ProtocolExtractor
     op, _protocol, tick, val1, val2, val3 = params
 
     # Encode based on operation type (operation is passed separately now)
+    # Use tuple encoding for struct compatibility with contracts
+    # IMPORTANT: Field order must match TokenManager's struct definitions!
     if op == 'deploy'.b
-      # Deploy: tick, max, lim
-      Eth::Abi.encode(['string', 'uint256', 'uint256'], [tick, val1, val2])
+      # DeployOperation struct: tick, maxSupply, mintAmount
+      # Our params: tick, max (val1), lim (val2)
+      # So: tick, maxSupply=val1, mintAmount=val2
+      Eth::Abi.encode(['(string,uint256,uint256)'], [[tick.b, val1, val2]])
     elsif op == 'mint'.b
-      # Mint: tick, id, amt
-      Eth::Abi.encode(['string', 'uint256', 'uint256'], [tick, val1, val3])
+      # MintOperation struct: tick, id, amount
+      # Our params: tick, id (val1), amt (val3)
+      # So: tick, id=val1, amount=val3
+      Eth::Abi.encode(['(string,uint256,uint256)'], [[tick.b, val1, val3]])
     else
       ''.b
     end

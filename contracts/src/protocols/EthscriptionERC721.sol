@@ -6,44 +6,31 @@ import "../ERC721EthscriptionsUpgradeable.sol";
 // import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
 // import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "../Ethscriptions.sol";
+import {LibString} from "solady/utils/LibString.sol";
+import {Base64} from "solady/utils/Base64.sol";
+import "../CollectionsManager.sol";
 
 /// @title EthscriptionERC721
 /// @notice ERC-721 contract for an Ethscription collection
 /// @dev Maintains internal state but overrides ownerOf to delegate to Ethscriptions contract
 contract EthscriptionERC721 is ERC721EthscriptionsUpgradeable {
+    using LibString for *;
 
     /// @notice The main Ethscriptions contract
-    Ethscriptions public ethscriptions;
+    Ethscriptions public constant ethscriptions = Ethscriptions(Predeploys.ETHSCRIPTIONS);
 
     /// @notice The collection factory that created this contract
     address public factory;
 
     /// @notice The collection ID (Ethscription hash)
     bytes32 public collectionId;
-
-    /// @notice Metadata inscription ID for the collection
-    bytes32 public metadataInscriptionId;
-
-    /// @notice Base URI for token metadata
-    string public baseTokenURI;
-
-    /// @notice Mapping from token ID to Ethscription ID
-    mapping(uint256 => bytes32) public tokenToEthscription;
-
-    /// @notice Mapping from Ethscription ID to token ID
-    mapping(bytes32 => uint256) public ethscriptionToToken;
-
-    /// @notice Counter for token IDs
-    uint256 private nextTokenId = 1;
-
-    /// @notice Collection is locked/frozen
+    
     bool public locked;
 
     // Events
     event MemberAdded(bytes32 indexed ethscriptionId, uint256 indexed tokenId);
     event MemberRemoved(bytes32 indexed ethscriptionId, uint256 indexed tokenId);
     event CollectionLocked();
-    event MetadataUpdated(bytes32 indexed metadataInscriptionId, string baseURI);
 
     // Errors
     error NotFactory();
@@ -66,35 +53,24 @@ contract EthscriptionERC721 is ERC721EthscriptionsUpgradeable {
     function initialize(
         string memory _name,
         string memory _symbol,
-        bytes32 _collectionId,
-        address _ethscriptions,
-        bytes32 _metadataInscriptionId,
-        string memory _baseTokenURI
+        bytes32 _collectionId
     ) external initializer {
         // Initialize parent contracts
         __ERC721_init(_name, _symbol);
 
         // Set collection-specific values
         collectionId = _collectionId;
-        ethscriptions = Ethscriptions(_ethscriptions);
-        factory = msg.sender;  // The CollectionsManager that deployed this
-        metadataInscriptionId = _metadataInscriptionId;
-        baseTokenURI = _baseTokenURI;
+        factory = msg.sender;
     }
 
-    /// @notice Add a member to the collection
+    /// @notice Add a member to the collection with specific token ID
     /// @param ethscriptionId The Ethscription to add
-    function addMember(bytes32 ethscriptionId) external onlyFactory notLocked {
-        if (ethscriptionToToken[ethscriptionId] != 0) revert AlreadyMember();
-
-        uint256 tokenId = nextTokenId++;
-        tokenToEthscription[tokenId] = ethscriptionId;
-        ethscriptionToToken[ethscriptionId] = tokenId;
-
+    /// @param tokenId The token ID to mint (same as item index)
+    function addMember(bytes32 ethscriptionId, uint256 tokenId) external onlyFactory notLocked {
         // Get current owner from Ethscriptions contract
         address owner = ethscriptions.ownerOf(ethscriptionId);
 
-        // Mint using internal state
+        // Mint using the specified token ID
         _mint(owner, tokenId);
 
         emit MemberAdded(ethscriptionId, tokenId);
@@ -102,19 +78,13 @@ contract EthscriptionERC721 is ERC721EthscriptionsUpgradeable {
 
     /// @notice Remove a member from the collection
     /// @param ethscriptionId The Ethscription to remove
-    function removeMember(bytes32 ethscriptionId) external onlyFactory notLocked {
-        uint256 tokenId = ethscriptionToToken[ethscriptionId];
-        if (tokenId == 0) revert NotMember();
-
+    /// @param tokenId The token ID to remove
+    function removeMember(bytes32 ethscriptionId, uint256 tokenId) external onlyFactory notLocked {
         // Get current owner before removal (for the Transfer event)
         address currentOwner = _ownerOf(tokenId);
 
         // Mark token as non-existent in the base contract
         _setTokenExists(tokenId, false);
-
-        // Clear our tracking mappings
-        delete tokenToEthscription[tokenId];
-        delete ethscriptionToToken[ethscriptionId];
 
         // Emit Transfer to address(0) for indexers to track removal
         emit Transfer(currentOwner, address(0), tokenId);
@@ -123,12 +93,10 @@ contract EthscriptionERC721 is ERC721EthscriptionsUpgradeable {
 
     /// @notice Sync ownership for a specific token
     /// @param tokenId The token to sync
-    function syncOwnership(uint256 tokenId) external {
+    /// @param ethscriptionId The ethscription ID for this token
+    function syncOwnership(uint256 tokenId, bytes32 ethscriptionId) external {
         // Check if token still exists in collection
         require(_tokenExists(tokenId), "Token does not exist");
-
-        bytes32 ethscriptionId = tokenToEthscription[tokenId];
-        require(ethscriptionId != bytes32(0), "Token not in collection");
 
         // Get actual owner from Ethscriptions contract
         address actualOwner = ethscriptions.ownerOf(ethscriptionId);
@@ -139,45 +107,30 @@ contract EthscriptionERC721 is ERC721EthscriptionsUpgradeable {
         // If they differ, update our state
         if (actualOwner != recordedOwner) {
             // Use internal _transfer to update state and emit event
-            // This bypasses the transfer restrictions in transferFrom
-            // Works for any owner including address(0)
             _transfer(recordedOwner, actualOwner, tokenId);
         }
     }
 
     /// @notice Batch sync ownership for multiple tokens
     /// @param tokenIds Array of token IDs to sync
-    function syncOwnershipBatch(uint256[] calldata tokenIds) external {
+    /// @param ethscriptionIds Array of corresponding ethscription IDs
+    function syncOwnershipBatch(uint256[] calldata tokenIds, bytes32[] calldata ethscriptionIds) external {
+        require(tokenIds.length == ethscriptionIds.length, "Array length mismatch");
+
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
+            bytes32 ethscriptionId = ethscriptionIds[i];
 
             // Skip non-existent tokens
             if (!_tokenExists(tokenId)) continue;
 
-            bytes32 ethscriptionId = tokenToEthscription[tokenId];
+            address actualOwner = ethscriptions.ownerOf(ethscriptionId);
+            address recordedOwner = _ownerOf(tokenId);
 
-            if (ethscriptionId != bytes32(0)) {
-                address actualOwner = ethscriptions.ownerOf(ethscriptionId);
-                address recordedOwner = _ownerOf(tokenId);
-
-                if (actualOwner != recordedOwner) {
-                    // Transfer to actual owner (including address(0))
-                    _transfer(recordedOwner, actualOwner, tokenId);
-                }
+            if (actualOwner != recordedOwner) {
+                _transfer(recordedOwner, actualOwner, tokenId);
             }
         }
-    }
-
-    /// @notice Update collection metadata
-    /// @param _metadataInscriptionId New metadata inscription ID
-    /// @param _baseTokenURI New base URI
-    function updateMetadata(
-        bytes32 _metadataInscriptionId,
-        string calldata _baseTokenURI
-    ) external onlyFactory notLocked {
-        metadataInscriptionId = _metadataInscriptionId;
-        baseTokenURI = _baseTokenURI;
-        emit MetadataUpdated(_metadataInscriptionId, _baseTokenURI);
     }
 
     /// @notice Lock the collection (freeze it)
@@ -193,22 +146,100 @@ contract EthscriptionERC721 is ERC721EthscriptionsUpgradeable {
             revert("Token does not exist");
         }
 
-        bytes32 ethscriptionId = tokenToEthscription[tokenId];
-        if (ethscriptionId == bytes32(0)) {
+        // Get ethscription ID from manager
+        CollectionsManager manager = CollectionsManager(factory);
+        CollectionsManager.CollectionItem memory item = manager.getCollectionItem(collectionId, tokenId);
+
+        if (item.ethscriptionId == bytes32(0)) {
             revert("Token not in collection");
         }
 
         // Always return the actual owner from Ethscriptions contract
-        return ethscriptions.ownerOf(ethscriptionId);
+        return ethscriptions.ownerOf(item.ethscriptionId);
     }
 
-    // Override tokenURI
+    // Override tokenURI to generate full metadata JSON
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        if (tokenToEthscription[tokenId] == bytes32(0)) {
+        if (!_tokenExists(tokenId)) {
             revert("Token does not exist");
         }
 
-        return '';
+        // Get collection metadata and item data from CollectionsManager
+        CollectionsManager manager = CollectionsManager(factory);
+        CollectionsManager.CollectionItem memory item = manager.getCollectionItem(collectionId, tokenId);
+
+        if (item.ethscriptionId == bytes32(0)) {
+            revert("Token not in collection");
+        }
+
+        // Get media URI from Ethscriptions contract
+        (string memory mediaType, string memory mediaUri) = ethscriptions.getMediaUri(item.ethscriptionId);
+
+        // Build JSON components
+        string memory jsonStart = string.concat(
+            '{"name":"',
+            item.name.escapeJSON(),
+            '"'
+        );
+
+        // Add description if present
+        if (bytes(item.description).length > 0) {
+            jsonStart = string.concat(
+                jsonStart,
+                ',"description":"',
+                item.description.escapeJSON(),
+                '"'
+            );
+        }
+
+        // Add media field (image or animation_url)
+        string memory mediaField = string.concat(
+            ',"',
+            mediaType,
+            '":"',
+            mediaUri.escapeJSON(),
+            '"'
+        );
+
+        // Add background color if present
+        string memory bgColor = "";
+        if (bytes(item.backgroundColor).length > 0) {
+            bgColor = string.concat(
+                ',"background_color":"',
+                item.backgroundColor.escapeJSON(),
+                '"'
+            );
+        }
+
+        // Build attributes array from Attribute structs
+        string memory attributesJson = ',"attributes":[';
+        for (uint i = 0; i < item.attributes.length; i++) {
+            if (i > 0) attributesJson = string.concat(attributesJson, ',');
+            attributesJson = string.concat(
+                attributesJson,
+                '{"trait_type":"',
+                item.attributes[i].traitType.escapeJSON(),
+                '","value":"',
+                item.attributes[i].value.escapeJSON(),
+                '"}'
+            );
+        }
+        attributesJson = string.concat(attributesJson, ']');
+
+        // Combine all parts
+        string memory json = string.concat(
+            jsonStart,
+            mediaField,
+            bgColor,
+            attributesJson,
+            '}'
+        );
+
+        // Return as base64-encoded data URI
+        return string.concat(
+            "data:application/json;base64,",
+            Base64.encode(bytes(json))
+        );
     }
 
     // Block external transfers - only internal _transfer is allowed for syncing
@@ -228,29 +259,4 @@ contract EthscriptionERC721 is ERC721EthscriptionsUpgradeable {
     function setApprovalForAll(address, bool) public pure override {
         revert TransferNotAllowed();
     }
-
-    // Required overrides for multiple inheritance
-    // function _update(address to, uint256 tokenId, address auth)
-    //     internal
-    //     override(ERC721Upgradeable, ERC721EnumerableUpgradeable)
-    //     returns (address)
-    // {
-    //     return super._update(to, tokenId, auth);
-    // }
-
-    // function _increaseBalance(address account, uint128 value)
-    //     internal
-    //     override(ERC721Upgradeable, ERC721EnumerableUpgradeable)
-    // {
-    //     super._increaseBalance(account, value);
-    // }
-
-    // function supportsInterface(bytes4 interfaceId)
-    //     public
-    //     view
-    //     override(ERC721Upgradeable, ERC721EnumerableUpgradeable)
-    //     returns (bool)
-    // {
-    //     return super.supportsInterface(interfaceId);
-    // }
 }
