@@ -18,8 +18,8 @@ RSpec.describe "Collections Protocol", type: :integration do
         "name" => "Test NFTs",
         "symbol" => "TEST",
         "description" => "Test collection",
-        "totalSupply" => "10000",
-        "logoImageUri" => "https://example.com/logo.png"
+        "total_supply" => "10000",
+        "logo_image_uri" => "https://example.com/logo.png"
       }
 
       expect_ethscription_success(
@@ -48,7 +48,7 @@ RSpec.describe "Collections Protocol", type: :integration do
         "op" => "create_collection",
         "name" => "Minimal Collection",
         "symbol" => "MIN",
-        "totalSupply" => "1000"
+        "total_supply" => "1000"
       }
 
       expect_ethscription_success(
@@ -60,13 +60,13 @@ RSpec.describe "Collections Protocol", type: :integration do
       )
     end
 
-    it "handles numeric strings for totalSupply (JS compatibility)" do
+    it "handles numeric strings for total_supply (JS compatibility)" do
       collection_data = {
         "p" => "collections",
         "op" => "create_collection",
         "name" => "Big Supply Collection",
         "symbol" => "BIG",
-        "totalSupply" => "1000000000000000000" # Large number as string
+        "total_supply" => "1000000000000000000" # Large number as string
       }
 
       expect_ethscription_success(
@@ -86,10 +86,10 @@ RSpec.describe "Collections Protocol", type: :integration do
       item_data = {
         "p" => "collections",
         "op" => "create_item",
-        "collectionId" => collection_id,
+        "collection_id" => collection_id,
         "name" => "Item #1",
         "description" => "First item in the collection",
-        "imageUri" => "https://example.com/item1.png",
+        "image_uri" => "https://example.com/item1.png",
         "attributes" => [
           {"trait_type" => "Color", "value" => "Blue"},
           {"trait_type" => "Rarity", "value" => "Common"},
@@ -110,11 +110,11 @@ RSpec.describe "Collections Protocol", type: :integration do
       item_data = {
         "p" => "collections",
         "op" => "create_item",
-        "collectionId" => collection_id,
+        "collection_id" => collection_id,
         "name" => "Item #2",
         "attributes" => [
-          {"traitType" => "Size", "value" => "Large"},
-          {"traitType" => "Speed", "value" => "Fast"}
+          {"trait_type" =>"Size", "value" => "Large"},
+          {"trait_type" =>"Speed", "value" => "Fast"}
         ]
       }
 
@@ -132,8 +132,8 @@ RSpec.describe "Collections Protocol", type: :integration do
       edit_data = {
         "p" => "collections",
         "op" => "edit_item",
-        "collectionId" => collection_id,
-        "itemIndex" => 0,
+        "collection_id" => collection_id,
+        "item_index" =>0,
         "name" => "Updated Item",
         "attributes" => ["(string,string)[]", []] # Type hint for empty attribute array
       }
@@ -151,8 +151,8 @@ RSpec.describe "Collections Protocol", type: :integration do
       edit_data = {
         "p" => "collections",
         "op" => "edit_item",
-        "collectionId" => collection_id,
-        "itemIndex" => 0,
+        "collection_id" => collection_id,
+        "item_index" =>0,
         "attributes" => [
           {"trait_type" => "Color", "value" => "Red"},
           {"trait_type" => "Status", "value" => "Upgraded"}
@@ -176,7 +176,7 @@ RSpec.describe "Collections Protocol", type: :integration do
       lock_data = {
         "p" => "collections",
         "op" => "lock_collection",
-        "collectionId" => collection_id
+        "collection_id" => collection_id
       }
 
       expect_ethscription_success(
@@ -192,8 +192,8 @@ RSpec.describe "Collections Protocol", type: :integration do
       transfer_data = {
         "p" => "collections",
         "op" => "transfer_ownership",
-        "collectionId" => collection_id,
-        "newOwner" => bob
+        "collection_id" => collection_id,
+        "new_owner" => bob
       }
 
       expect_ethscription_success(
@@ -209,7 +209,7 @@ RSpec.describe "Collections Protocol", type: :integration do
       batch_data = {
         "p" => "collections",
         "op" => "batch_create_items",
-        "collectionId" => collection_id,
+        "collection_id" => collection_id,
         "items" => [
           {
             "name" => "Item #1",
@@ -241,7 +241,7 @@ RSpec.describe "Collections Protocol", type: :integration do
       mixed_data = {
         "p" => "collections",
         "op" => "complex_operation",
-        "itemId" => "12345", # String number -> uint256
+        "item_id" => "12345", # String number -> uint256
         "active" => true, # JSON boolean -> bool
         "owner" => "0xabcdef1234567890123456789012345678901234", # Address
         "data" => "0x" + "a" * 64, # bytes32
@@ -290,14 +290,14 @@ RSpec.describe "Collections Protocol", type: :integration do
         "op" => "create_collection",
         "name" => "Verified Collection",
         "symbol" => "VRFY",
-        "totalSupply" => "100",
+        "total_supply" => "100",
         "description" => "",
-        "logoImageUri" => "",
-        "bannerImageUri" => "",
-        "backgroundColor" => "",
-        "websiteLink" => "",
-        "twitterLink" => "",
-        "discordLink" => ""
+        "logo_image_uri" => "",
+        "banner_image_uri" => "",
+        "background_color" => "",
+        "website_link" => "",
+        "twitter_link" => "",
+        "discord_link" => ""
       }
       
       expect_ethscription_success(
@@ -340,7 +340,7 @@ RSpec.describe "Collections Protocol", type: :integration do
         "p" => "collections",
         "op" => "create_collection",
         "name" => "Invalid",
-        "totalSupply" => too_big
+        "total_supply" => too_big
       }
 
       expect_protocol_extraction_failure(
@@ -382,7 +382,7 @@ RSpec.describe "Collections Protocol", type: :integration do
         "op" => "create_collection",
         "name" => "Full Test Collection",
         "symbol" => "FULL",
-        "totalSupply" => "10"
+        "total_supply" => "10"
       }
 
       create_results = expect_ethscription_success(
@@ -404,7 +404,7 @@ RSpec.describe "Collections Protocol", type: :integration do
       item_data = {
         "p" => "collections",
         "op" => "create_item",
-        "collectionId" => collection_id,
+        "collection_id" => collection_id,
         "name" => "Item 1",
         "attributes" => [
           {"trait_type" => "Color", "value" => "Blue"}
@@ -430,8 +430,8 @@ RSpec.describe "Collections Protocol", type: :integration do
       edit_data = {
         "p" => "collections",
         "op" => "edit_item",
-        "collectionId" => collection_id,
-        "itemIndex" => 0,
+        "collection_id" => collection_id,
+        "item_index" =>0,
         "name" => "Updated Item",
         "attributes" => ["(string,string)[]", []] # Type hint for empty array
       }
@@ -453,7 +453,7 @@ RSpec.describe "Collections Protocol", type: :integration do
       lock_data = {
         "p" => "collections",
         "op" => "lock_collection",
-        "collectionId" => collection_id
+        "collection_id" => collection_id
       }
 
       expect_ethscription_success(

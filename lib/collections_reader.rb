@@ -60,6 +60,7 @@ class CollectionsReader
 
     # Encode parameters
     encoded_params = Eth::Abi.encode(input_types, [normalize_bytes32(collection_id)])
+    # Use the actual function name from the contract
     function_selector = Eth::Util.keccak256('getCollectionState(bytes32)')[0..3]
     data = (function_selector + encoded_params).unpack1('H*')
     data = '0x' + data
@@ -102,6 +103,7 @@ class CollectionsReader
 
     # Encode parameters
     encoded_params = Eth::Abi.encode(input_types, [normalize_bytes32(collection_id)])
+    # Use the actual function name from the contract
     function_selector = Eth::Util.keccak256('getCollectionMetadata(bytes32)')[0..3]
     data = (function_selector + encoded_params).unpack1('H*')
     data = '0x' + data
@@ -141,6 +143,68 @@ class CollectionsReader
 
     # Collection exists if collectionContract is not zero address
     state[:collectionContract] != '0x0000000000000000000000000000000000000000'
+  end
+
+  def self.get_collection_item(collection_id, item_index, block_tag: 'latest')
+    # Encode function call for getCollectionItem(bytes32,uint256)
+    input_types = ['bytes32', 'uint256']
+    encoded_params = Eth::Abi.encode(input_types, [normalize_bytes32(collection_id), item_index])
+    function_selector = Eth::Util.keccak256('getCollectionItem(bytes32,uint256)')[0..3]
+    data = (function_selector + encoded_params).unpack1('H*')
+    data = '0x' + data
+
+    # Make the call
+    result = EthRpcClient.l2.eth_call(
+      to: COLLECTIONS_MANAGER_ADDRESS,
+      data: data,
+      block_number: block_tag
+    )
+
+    return nil if result == '0x' || result.nil?
+
+    # Decode the ItemData struct
+    # ItemData: (uint256,string,bytes32,string,string,Attribute[])
+    output_types = ['(uint256,string,bytes32,string,string,(string,string)[])']
+    decoded = Eth::Abi.decode(output_types, [result.delete_prefix('0x')].pack('H*'))
+    item_tuple = decoded[0]
+
+    {
+      itemIndex: item_tuple[0],
+      name: item_tuple[1],
+      ethscriptionId: '0x' + item_tuple[2].unpack1('H*'),
+      backgroundColor: item_tuple[3],
+      description: item_tuple[4],
+      attributes: item_tuple[5] # Array of [trait_type, value] tuples
+    }
+  rescue => e
+    Rails.logger.error "Failed to get item #{item_index} from collection #{collection_id}: #{e.message}"
+    nil
+  end
+
+  def self.get_collection_owner(collection_id, block_tag: 'latest')
+    # Get collection state first to get the contract address
+    state = get_collection_state(collection_id, block_tag: block_tag)
+    return nil if state.nil? || state[:collectionContract] == '0x0000000000000000000000000000000000000000'
+
+    # Call owner() on the collection contract
+    function_selector = Eth::Util.keccak256('owner()')[0..3]
+    data = '0x' + function_selector.unpack1('H*')
+
+    # Make the call to the collection contract
+    result = EthRpcClient.l2.eth_call(
+      to: state[:collectionContract],
+      data: data,
+      block_number: block_tag
+    )
+
+    return nil if result == '0x' || result.nil?
+
+    # Decode the owner address
+    decoded = Eth::Abi.decode(['address'], [result.delete_prefix('0x')].pack('H*'))
+    decoded[0]
+  rescue => e
+    Rails.logger.error "Failed to get owner for collection #{collection_id}: #{e.message}"
+    nil
   end
 
   private

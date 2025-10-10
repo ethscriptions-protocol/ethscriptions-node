@@ -139,9 +139,19 @@ class GenericProtocolExtractor
       values << encoded_value
     end
 
-    Eth::Abi.encode(["(#{types.join(',')})"], [values])
+    # Ensure all string values have consistent encoding
+    encoded_values = values.map do |v|
+      encode_value_for_abi(v)
+    end
+
+    # Create the tuple type string
+    tuple_type = "(#{types.join(',')})"
+
+    Eth::Abi.encode([tuple_type], [encoded_values])
   rescue StandardError => e
     Rails.logger.error "ABI encoding failed: #{e.message}"
+    Rails.logger.error "Types: #{types.inspect}"
+    Rails.logger.error "Values: #{values.inspect}"
     raise ExtractionError, "Failed to encode parameters"
   end
 
@@ -336,6 +346,22 @@ class GenericProtocolExtractor
 
     # Return as array of (string,string) tuples for Attribute struct
     ['(string,string)[]', tuple_values]
+  end
+
+  def encode_value_for_abi(value)
+    case value
+    when String
+      # Eth::Abi expects binary encoding - just call .b on everything
+      value.b
+    when Array
+      # Recursively handle arrays that might contain strings
+      value.map { |item| encode_value_for_abi(item) }
+    when Hash
+      # Recursively handle hashes that might contain strings
+      value.transform_values { |v| encode_value_for_abi(v) }
+    else
+      value
+    end
   end
 
   def infer_string_type(value)

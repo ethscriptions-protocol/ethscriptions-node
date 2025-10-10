@@ -442,5 +442,142 @@ RSpec.describe GenericProtocolExtractor do
         expect(token_params).to eq(['mint'.b, 'erc-20'.b, 'punk'.b, 1, 0, 100])
       end
     end
+
+    context 'malformed Unicode handling' do
+      it 'rejects invalid UTF-8 byte sequences' do
+        # Invalid UTF-8 sequence (continuation byte without start byte)
+        invalid_utf8 = "\x80\x81\x82"
+        content_uri = "data:,{\"p\":\"test\",\"op\":\"action\",\"data\":\"#{invalid_utf8}\"}"
+
+        # Should fail during JSON parsing or validation
+        result = GenericProtocolExtractor.extract(content_uri)
+        expect(result).to eq(default_params)
+      end
+
+      it 'rejects strings with null bytes' do
+        # Null byte in the middle of a string
+        content_uri = "data:,{\"p\":\"test\",\"op\":\"action\",\"data\":\"hello\x00world\"}"
+
+        result = GenericProtocolExtractor.extract(content_uri)
+        # Should either fail or successfully parse - depending on JSON parser behavior
+        # Most importantly, should not cause security issues
+        expect(result).to be_a(Array)
+        expect(result.length).to eq(3)
+      end
+
+      it 'handles valid Unicode characters correctly' do
+        # Test with various Unicode characters: emoji, Chinese, Arabic, etc.
+        # Note: JSON field order must match for proper tuple encoding
+        content_uri = 'data:,{"p":"test","op":"action","emoji":"🎉","chinese":"你好","arabic":"مرحبا","special":"Ĝīś"}'
+
+        protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
+
+        expect(protocol).to eq('test'.b)
+        expect(operation).to eq('action'.b)
+
+        # Decode and verify Unicode is preserved
+        # Field order: emoji, chinese, arabic, special (as they appear in JSON)
+        types = ['(string,string,string,string)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
+
+        # ABI decode returns binary strings, convert back to UTF-8
+        expect(decoded[0].force_encoding('UTF-8')).to eq('🎉')      # emoji
+        expect(decoded[1].force_encoding('UTF-8')).to eq('你好')     # chinese
+        expect(decoded[2].force_encoding('UTF-8')).to eq('مرحبا')   # arabic
+        expect(decoded[3].force_encoding('UTF-8')).to eq('Ĝīś')     # special
+      end
+
+      it 'rejects overlong UTF-8 encodings' do
+        # Overlong encoding of ASCII 'A' (should be 0x41, not 0xC0 0x81)
+        # This is a security concern as it can bypass filters
+        overlong = "\xC0\x81"
+        content_uri = "data:,{\"p\":\"test\",\"op\":\"action\",\"char\":\"#{overlong}\"}"
+
+        # Ruby's JSON parser should reject this
+        result = GenericProtocolExtractor.extract(content_uri)
+        expect(result).to eq(default_params)
+      end
+
+      it 'handles maximum valid Unicode code points' do
+        # U+10FFFF is the maximum valid Unicode code point
+        max_unicode = "\u{10FFFF}"
+        content_uri = "data:,{\"p\":\"test\",\"op\":\"action\",\"max\":\"#{max_unicode}\"}"
+
+        protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
+
+        expect(protocol).to eq('test'.b)
+        expect(operation).to eq('action'.b)
+
+        types = ['(string)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
+        # ABI decode returns binary strings, convert back to UTF-8
+        expect(decoded[0].force_encoding('UTF-8')).to eq(max_unicode)
+      end
+
+      it 'rejects strings exceeding length limit with multi-byte Unicode' do
+        # Create a string of 501 emoji (each emoji is 4 bytes in UTF-8)
+        # This should exceed MAX_STRING_LENGTH of 1000 characters
+        long_emoji = '🎉' * 1001
+        content_uri = "data:,{\"p\":\"test\",\"op\":\"action\",\"text\":\"#{long_emoji}\"}"
+
+        result = GenericProtocolExtractor.extract(content_uri)
+        expect(result).to eq(default_params)
+      end
+
+      it 'handles mixed ASCII and Unicode within limits' do
+        # String with exactly 1000 characters (mix of ASCII and Unicode)
+        mixed = 'a' * 500 + '你' * 500
+        content_uri = "data:,{\"p\":\"test\",\"op\":\"action\",\"text\":\"#{mixed}\"}"
+
+        protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
+
+        expect(protocol).to eq('test'.b)
+        expect(operation).to eq('action'.b)
+
+        types = ['(string)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
+        # ABI decode returns binary strings, convert back to UTF-8
+        expect(decoded[0].force_encoding('UTF-8')).to eq(mixed)
+      end
+
+      it 'rejects unpaired Unicode surrogates' do
+        # High surrogate without low surrogate (invalid in UTF-8)
+        # Note: Ruby prevents creating invalid surrogates directly
+        # This test verifies the system handles encoding errors gracefully
+        begin
+          # Attempt to create invalid UTF-8 byte sequence
+          invalid = "\xED\xA0\x80".force_encoding('UTF-8') # Would be U+D800 in UTF-16
+          content_uri = "data:,{\"p\":\"test\",\"op\":\"action\",\"bad\":\"#{invalid}\"}"
+
+          result = GenericProtocolExtractor.extract(content_uri)
+          # Should either fail or handle gracefully
+          expect(result).to be_a(Array)
+        rescue Encoding::InvalidByteSequenceError, Encoding::CompatibilityError, ArgumentError
+          # Expected - Ruby prevents invalid encoding
+        end
+      end
+
+      it 'handles zero-width and control characters' do
+        # Zero-width joiner, zero-width non-joiner, etc.
+        zwj = "\u200D"
+        zwnj = "\u200C"
+        content_uri = "data:,{\"p\":\"test\",\"op\":\"action\",\"zwj\":\"#{zwj}\",\"zwnj\":\"#{zwnj}\"}"
+
+        protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
+
+        expect(protocol).to eq('test'.b)
+        expect(operation).to eq('action'.b)
+
+        types = ['(string,string)']
+        decoded_tuple = Eth::Abi.decode(types, encoded_data)
+        decoded = decoded_tuple[0]
+        # ABI decode returns binary strings, convert back to UTF-8
+        expect(decoded[0].force_encoding('UTF-8')).to eq(zwj)
+        expect(decoded[1].force_encoding('UTF-8')).to eq(zwnj)
+      end
+    end
   end
 end

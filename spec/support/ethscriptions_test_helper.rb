@@ -77,7 +77,12 @@ module EthscriptionsTestHelper
   end
 
   def collection_exists?(collection_id)
-    CollectionsReader.collection_exists?(collection_id)
+    state = CollectionsReader.get_collection_state(collection_id)
+    state && state[:collectionContract] != '0x0000000000000000000000000000000000000000'
+  end
+
+  def get_collection_item(collection_id, index)
+    CollectionsReader.get_collection_item(collection_id, index)
   end
 
   # Generate a valid Ethereum address from a seed string
@@ -582,6 +587,7 @@ module EthscriptionsTestHelper
     ethscription_ids = imported_ethscriptions.flat_map do |tx|
       case tx.ethscription_operation
       when :create
+        # For create operations, the ethscription ID is the transaction hash
         [tx.eth_transaction.tx_hash.to_hex]
       when :transfer
         if tx.transfer_ids.present?

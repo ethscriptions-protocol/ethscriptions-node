@@ -272,7 +272,7 @@ RSpec.describe GenericProtocolExtractor do
     end
 
     describe 'edit_collection' do
-      it 'encodes edit_collection operation' do
+      it 'encodes edit_collection operation with flattened structure' do
         json = {
           "p" => "collections",
           "op" => "edit_collection",
@@ -292,6 +292,21 @@ RSpec.describe GenericProtocolExtractor do
         expect(result[0]).to eq("collections")
         expect(result[1]).to eq("edit_collection")
         expect(result[2]).not_to be_empty
+
+        # Decode to verify the flattened structure
+        # Order matches JSON key order: collectionId, description, logoImageUri, bannerImageUri, backgroundColor, websiteLink, twitterLink, discordLink
+        types = ['(bytes32,string,string,string,string,string,string,string)']
+        decoded_tuple = Eth::Abi.decode(types, result[2])
+        decoded = decoded_tuple[0]
+
+        expect(decoded[0].unpack1('H*')).to eq("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+        expect(decoded[1]).to eq("Updated description")
+        expect(decoded[2]).to eq("esc://ethscriptions/0xnew/data")
+        expect(decoded[3]).to eq("")
+        expect(decoded[4]).to eq("#00FF00")
+        expect(decoded[5]).to eq("https://newsite.com")
+        expect(decoded[6]).to eq("")
+        expect(decoded[7]).to eq("https://discord.gg/new")
       end
     end
 

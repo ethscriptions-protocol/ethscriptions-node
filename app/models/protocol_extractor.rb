@@ -1,98 +1,77 @@
 # Unified protocol extractor that delegates to appropriate extractors
 class ProtocolExtractor
-  # Quick regex checks to identify protocol type without full parsing
-  # These are optimized for speed and used to determine which extractor to use
-
-  # erc-20 token protocol - must match exact format for backwards compatibility
-  # Checks for the specific structure required by TokenParamsExtractor
-  TOKEN_PROTOCOL_REGEX = /\A
-    data:,\{
-      "p":"erc-20",
-      "op":"(deploy|mint)",
-      "tick":"[a-z0-9]{1,28}",
-      (?:
-        # Deploy format
-        "max":"(?:0|[1-9][0-9]*)",
-        "lim":"(?:0|[1-9][0-9]*)"
-        |
-        # Mint format
-        "id":"(?:0|[1-9][0-9]*)",
-        "amt":"(?:0|[1-9][0-9]*)"
-      )
-    \}\z
-  /x.freeze
-
-  # Default return values for different scenarios
+  # Default return values to check if extraction succeeded
   TOKEN_DEFAULT_PARAMS = TokenParamsExtractor::DEFAULT_PARAMS
+  COLLECTIONS_DEFAULT_PARAMS = CollectionsParamsExtractor::DEFAULT_PARAMS
   GENERIC_DEFAULT_PARAMS = GenericProtocolExtractor::DEFAULT_PARAMS
 
   def self.extract(content_uri)
     return nil unless content_uri.is_a?(String)
 
-    # Quick check if it starts with data:,{
-    return nil unless content_uri.start_with?('data:,{')
+    # Quick check if it starts with data:,
+    return nil unless content_uri.start_with?('data:,')
 
-    # Check if it's a token protocol first (needs exact format)
-    if matches_token_protocol?(content_uri)
-      extract_token_protocol(content_uri)
-    elsif matches_generic_protocol?(content_uri)
-      extract_generic_protocol(content_uri)
-    else
-      # Not a recognized protocol format
-      nil
-    end
+    # Try extractors in order of strictness
+    # 1. Token protocol (most strict - exact character position matters)
+    # 2. Collections protocol (strict - exact key order required)
+    # 3. Generic protocol (flexible - for all other protocols)
+
+    # Try token extractor first (most strict)
+    result = try_token_extractor(content_uri)
+    return result if result
+
+    # Try collections extractor next
+    result = try_collections_extractor(content_uri)
+    return result if result
+
+    # Try generic extractor last (most flexible)
+    result = try_generic_extractor(content_uri)
+    return result if result
+
+    # No protocol could be extracted
+    nil
   end
 
   private
 
-  def self.matches_token_protocol?(content_uri)
-    # Quick check for erc-20 protocol signature
-    # This is more lenient than the full regex, just checking for key markers
-    content_uri.include?('"p":"erc-20"') &&
-    (content_uri.include?('"op":"deploy"') || content_uri.include?('"op":"mint"')) &&
-    content_uri.include?('"tick":"')
-  end
-
-  def self.matches_generic_protocol?(content_uri)
-    # Check if it has p and op fields by parsing JSON
-    # This supports multi-line JSON and is more reliable than regex
-    begin
-      json_str = content_uri[6..] # Remove 'data:,'
-      data = JSON.parse(json_str, max_nesting: 10)
-
-      # Must be an object with p and op fields
-      data.is_a?(Hash) &&
-        data.key?('p') && data['p'].is_a?(String) &&
-        data.key?('op') && data['op'].is_a?(String)
-    rescue JSON::ParserError
-      false
-    end
-  end
-
-  def self.extract_token_protocol(content_uri)
-    # Use TokenParamsExtractor for erc-20 tokens
-    # This maintains backwards compatibility with exact format requirements
+  def self.try_token_extractor(content_uri)
+    # TokenParamsExtractor uses strict regex and returns DEFAULT_PARAMS if no match
     params = TokenParamsExtractor.extract(content_uri)
 
-    # Check if extraction succeeded
+    # Check if extraction succeeded (returns non-default params)
     if params != TOKEN_DEFAULT_PARAMS
       {
         type: :token,
         protocol: 'erc-20',
         operation: params[0], # 'deploy' or 'mint'
         params: params,
-        # For L2 bridge, we need the params in the expected format
         encoded_params: encode_token_params(params)
       }
     else
-      # Failed token extraction - might be malformed
-      # Return nil to indicate this isn't a valid token protocol
       nil
     end
   end
 
-  def self.extract_generic_protocol(content_uri)
-    # Use GenericProtocolExtractor for all other protocols
+  def self.try_collections_extractor(content_uri)
+    # CollectionsParamsExtractor returns [''.b, ''.b, ''.b] if no match
+    protocol, operation, encoded_data = CollectionsParamsExtractor.extract(content_uri)
+
+    # Check if extraction succeeded
+    if protocol != ''.b && operation != ''.b
+      {
+        type: :collections,
+        protocol: protocol,
+        operation: operation,
+        params: nil, # Collections doesn't return decoded params
+        encoded_params: encoded_data
+      }
+    else
+      nil
+    end
+  end
+
+  def self.try_generic_extractor(content_uri)
+    # GenericProtocolExtractor returns [''.b, ''.b, ''.b] if no match
     protocol, operation, encoded_data = GenericProtocolExtractor.extract(content_uri)
 
     # Check if extraction succeeded
@@ -105,7 +84,6 @@ class ProtocolExtractor
         encoded_params: encoded_data
       }
     else
-      # Failed generic extraction
       nil
     end
   end
@@ -153,6 +131,9 @@ class ProtocolExtractor
       # For tokens, encode the params properly
       encoded_data = encode_token_data(result[:params])
       [protocol, operation, encoded_data]
+    elsif result[:type] == :collections
+      # Collections protocol - already has encoded data
+      [result[:protocol], result[:operation], result[:encoded_params]]
     else
       # Generic protocol - already has encoded data
       [result[:protocol], result[:operation], result[:encoded_params]]

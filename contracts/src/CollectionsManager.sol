@@ -76,7 +76,14 @@ contract CollectionsManager is IProtocolHandler {
 
     struct EditCollectionOperation {
         bytes32 collectionId;
-        CollectionMetadata updates;  // Reuse same struct, empty strings mean no change
+        // Flattened metadata fields (totalSupply excluded as it's not editable)
+        string description;
+        string logoImageUri;
+        string bannerImageUri;
+        string backgroundColor;
+        string websiteLink;
+        string twitterLink;
+        string discordLink;
     }
 
     struct EditCollectionItemOperation {
@@ -124,6 +131,12 @@ contract CollectionsManager is IProtocolHandler {
         bytes32 updateTxHash
     );
 
+    event CollectionEdited(bytes32 indexed collectionId);
+    event CollectionLocked(bytes32 indexed collectionId);
+
+    // Mirror success signaling so indexers can detect success without relying on router
+    event ProtocolHandlerSuccess(bytes32 indexed transactionHash, string protocol);
+
     modifier onlyEthscriptions() {
         require(msg.sender == ethscriptions, "Only Ethscriptions contract");
         _;
@@ -167,6 +180,7 @@ contract CollectionsManager is IProtocolHandler {
         collectionIds.push(collectionId);
 
         emit CollectionCreated(collectionId, collectionContract, metadata.name, metadata.symbol, totalSupply);
+        emit ProtocolHandlerSuccess(txHash, protocolName());
     }
 
     /// @notice Handle add_items_batch operation with full metadata
@@ -234,6 +248,7 @@ contract CollectionsManager is IProtocolHandler {
         }
 
         emit ItemsAdded(addOp.collectionId, addOp.items.length, txHash);
+        emit ProtocolHandlerSuccess(txHash, protocolName());
     }
 
     /// @notice Handle remove_items operation
@@ -275,6 +290,7 @@ contract CollectionsManager is IProtocolHandler {
         }
 
         emit ItemsRemoved(removeOp.collectionId, removeOp.ethscriptionIds.length, txHash);
+        emit ProtocolHandlerSuccess(txHash, protocolName());
     }
 
     /// @notice Handle edit_collection operation
@@ -294,13 +310,16 @@ contract CollectionsManager is IProtocolHandler {
         require(currentOwner == sender, "Only collection owner can edit");
 
         // Update metadata fields (only non-empty values update)
-        if (bytes(editOp.updates.description).length > 0) metadata.description = editOp.updates.description;
-        if (bytes(editOp.updates.logoImageUri).length > 0) metadata.logoImageUri = editOp.updates.logoImageUri;
-        if (bytes(editOp.updates.bannerImageUri).length > 0) metadata.bannerImageUri = editOp.updates.bannerImageUri;
-        if (bytes(editOp.updates.backgroundColor).length > 0) metadata.backgroundColor = editOp.updates.backgroundColor;
-        if (bytes(editOp.updates.websiteLink).length > 0) metadata.websiteLink = editOp.updates.websiteLink;
-        if (bytes(editOp.updates.twitterLink).length > 0) metadata.twitterLink = editOp.updates.twitterLink;
-        if (bytes(editOp.updates.discordLink).length > 0) metadata.discordLink = editOp.updates.discordLink;
+        if (bytes(editOp.description).length > 0) metadata.description = editOp.description;
+        if (bytes(editOp.logoImageUri).length > 0) metadata.logoImageUri = editOp.logoImageUri;
+        if (bytes(editOp.bannerImageUri).length > 0) metadata.bannerImageUri = editOp.bannerImageUri;
+        if (bytes(editOp.backgroundColor).length > 0) metadata.backgroundColor = editOp.backgroundColor;
+        if (bytes(editOp.websiteLink).length > 0) metadata.websiteLink = editOp.websiteLink;
+        if (bytes(editOp.twitterLink).length > 0) metadata.twitterLink = editOp.twitterLink;
+        if (bytes(editOp.discordLink).length > 0) metadata.discordLink = editOp.discordLink;
+
+        emit CollectionEdited(editOp.collectionId);
+        emit ProtocolHandlerSuccess(txHash, protocolName());
     }
 
     /// @notice Handle edit_collection_item operation
@@ -333,6 +352,7 @@ contract CollectionsManager is IProtocolHandler {
                 item.attributes.push(editOp.attributes[i]);
             }
         }
+        emit ProtocolHandlerSuccess(txHash, protocolName());
     }
 
     /// @notice Handle lock_collection operation
@@ -355,11 +375,13 @@ contract CollectionsManager is IProtocolHandler {
 
         collection.locked = true;
         EthscriptionERC721(collection.collectionContract).lockCollection();
+        emit CollectionLocked(collectionId);
+        emit ProtocolHandlerSuccess(txHash, protocolName());
     }
 
     /// @notice Handle sync_ownership operation to sync ERC721 ownership with Ethscription ownership
     /// @dev Requires specifying the collection ID to sync for, to avoid iterating over unbounded user data
-    function op_sync_ownership(bytes32, bytes calldata data) external onlyEthscriptions {
+    function op_sync_ownership(bytes32 txHash, bytes calldata data) external onlyEthscriptions {
         // User must specify which collection to sync for
         // Decode the operation: collection ID + ethscription IDs to sync
         (bytes32 collectionId, bytes32[] memory ethscriptionIds) = abi.decode(data, (bytes32, bytes32[]));
@@ -380,6 +402,7 @@ contract CollectionsManager is IProtocolHandler {
                 collectionContract.syncOwnership(tokenId, ethscriptionId);
             }
         }
+        emit ProtocolHandlerSuccess(txHash, protocolName());
     }
 
     /// @notice Handle transfer notification from Ethscriptions contract

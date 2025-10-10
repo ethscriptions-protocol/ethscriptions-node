@@ -27,22 +27,29 @@ RSpec.describe ProtocolExtractor do
         expect(result[:params]).to eq(['mint'.b, 'erc-20'.b, 'punk'.b, 1, 0, 100])
       end
 
-      it 'returns nil for malformed token protocol' do
-        # Missing required field
+      it 'falls back to generic extractor for malformed token protocol' do
+        # Missing required field (id) for token mint
         content_uri = 'data:,{"p":"erc-20","op":"mint","tick":"punk","amt":"100"}'
 
         result = ProtocolExtractor.extract(content_uri)
 
-        expect(result).to be_nil
+        # Should be extracted as generic protocol, not token
+        expect(result).not_to be_nil
+        expect(result[:type]).to eq(:generic)
+        expect(result[:protocol]).to eq('erc-20')
+        expect(result[:operation]).to eq('mint')
       end
 
-      it 'returns nil for token with extra fields' do
+      it 'falls back to generic extractor for token with extra fields' do
         # Extra fields should fail strict token validation
         content_uri = 'data:,{"p":"erc-20","op":"mint","tick":"punk","id":"1","amt":"100","extra":"bad"}'
 
         result = ProtocolExtractor.extract(content_uri)
 
-        expect(result).to be_nil
+        # Should be extracted as generic protocol due to extra fields
+        expect(result).not_to be_nil
+        expect(result[:type]).to eq(:generic)
+        expect(result[:protocol]).to eq('erc-20')
       end
     end
 
@@ -182,13 +189,15 @@ RSpec.describe ProtocolExtractor do
         expect(decoded[0]).to eq('Test')
       end
 
-      it 'returns default params for malformed token protocol' do
+      it 'returns generic protocol data for malformed token protocol' do
         content_uri = 'data:,{"p":"erc-20","op":"mint","tick":"punk"}' # Missing id and amt
 
         result = ProtocolExtractor.for_calldata(content_uri)
 
-        # Malformed token protocol returns empty defaults
-        expect(result).to eq([''.b, ''.b, ''.b])
+        # Malformed token protocol is parsed as generic protocol
+        expect(result[0]).to eq('erc-20'.b)
+        expect(result[1]).to eq('mint'.b)
+        expect(result[2]).not_to be_empty # Has encoded data
       end
     end
 

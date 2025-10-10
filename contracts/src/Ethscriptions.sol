@@ -133,6 +133,12 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         bytes revertData
     );
 
+    /// @notice Emitted when a protocol handler operation succeeds
+    event ProtocolHandlerSuccess(
+        bytes32 indexed transactionHash,
+        string protocol
+    );
+
 
 
     /// @notice Modifier to emit pending genesis events on first real creation
@@ -331,6 +337,8 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
                 // Protocol operation failed, but ethscription creation should continue
                 // The ethscription is still valid even if protocol processing fails
                 emit ProtocolHandlerFailed(params.transactionHash, params.protocolParams.protocol, revertData);
+            } else {
+                emit ProtocolHandlerSuccess(params.transactionHash, params.protocolParams.protocol);
             }
         }
     }
@@ -429,7 +437,9 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             if (bytes(protocol).length > 0) {
                 address handler = protocolHandlers[protocol];
                 if (handler != address(0)) {
-                    try IProtocolHandler(handler).onTransfer(txHash, from, to) {} catch (bytes memory revertData) {
+                    try IProtocolHandler(handler).onTransfer(txHash, from, to) {
+                        emit ProtocolHandlerSuccess(txHash, protocol);
+                    } catch (bytes memory revertData) {
                         emit ProtocolHandlerFailed(txHash, protocol, revertData);
                     }
                 }
