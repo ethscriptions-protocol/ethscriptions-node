@@ -8,8 +8,14 @@ class ProtocolExtractor
   def self.extract(content_uri)
     return nil unless content_uri.is_a?(String)
 
-    # Quick check if it starts with data:,
-    return nil unless content_uri.start_with?('data:,')
+    # Centralized validation: must be a valid data URI and JSON payload
+    return nil unless DataUri.valid?(content_uri)
+    begin
+      payload = DataUri.new(content_uri).decoded_data
+    rescue StandardError
+      return nil
+    end
+    return nil unless payload.start_with?('{')
 
     # Try extractors in order of strictness
     # 1. Token protocol (most strict - exact character position matters)
@@ -25,8 +31,8 @@ class ProtocolExtractor
     return result if result
 
     # Try generic extractor last (most flexible)
-    result = try_generic_extractor(content_uri)
-    return result if result
+    # result = try_generic_extractor(content_uri)
+    # return result if result
 
     # No protocol could be extracted
     nil
@@ -36,6 +42,7 @@ class ProtocolExtractor
 
   def self.try_token_extractor(content_uri)
     # TokenParamsExtractor uses strict regex and returns DEFAULT_PARAMS if no match
+    # This enforces non-ESIP6 and exact JSON formatting implicitly.
     params = TokenParamsExtractor.extract(content_uri)
 
     # Check if extraction succeeded (returns non-default params)

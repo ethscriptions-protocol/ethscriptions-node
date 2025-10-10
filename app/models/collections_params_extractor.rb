@@ -100,7 +100,9 @@ class CollectionsParamsExtractor
 
     begin
       # Parse JSON (preserves key order)
-      json_str = content_uri[6..] # Remove 'data:,'
+      # Use DataUri to correctly handle optional parameters like ESIP6
+      json_str = DataUri.new(content_uri).decoded_data
+      # TODO: make sure this is safe
       data = JSON.parse(json_str)
 
       # Must be an object
@@ -135,7 +137,7 @@ class CollectionsParamsExtractor
   private
 
   def valid_data_uri?(uri)
-    uri.is_a?(String) && uri.start_with?('data:,')
+    DataUri.valid?(uri)
   end
 
   def encode_operation(operation, data, schema)

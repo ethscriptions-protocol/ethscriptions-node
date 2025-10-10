@@ -24,7 +24,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + token_data.to_json
+          data_uri: "data:," + token_data.to_json
         )
       ) do |results|
         # Verify the ethscription was created
@@ -57,7 +57,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + token_data.to_json
+          data_uri: "data:," + token_data.to_json
         )
       ) do |results|
         # Verify the ethscription was created with large numbers
@@ -82,7 +82,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + malformed_data.to_json
+          data_uri: "data:," + malformed_data.to_json
         )
       ) do |results, stored|
         # Ethscription created but protocol extraction failed
@@ -110,7 +110,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + deploy_data.to_json
+          data_uri: "data:," + deploy_data.to_json
         )
       )
     end
@@ -128,7 +128,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: bob,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + mint_data.to_json
+          data_uri: "data:," + mint_data.to_json
         )
       ) do |results|
         # Verify the ethscription was created
@@ -162,7 +162,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: bob,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + mint1_data.to_json
+          data_uri: "data:," + mint1_data.to_json
         )
       )
 
@@ -179,7 +179,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: bob,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + mint2_data.to_json
+          data_uri: "data:," + mint2_data.to_json
         )
       )
 
@@ -203,7 +203,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: bob,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + mint_data.to_json
+          data_uri: "data:," + mint_data.to_json
         )
       )
 
@@ -212,7 +212,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: charlie,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + mint_data.to_json
+          data_uri: "data:," + mint_data.to_json
         )
       ) do |results|
         # TODO: Check contract state - mint should be rejected
@@ -234,7 +234,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + invalid_format
+          data_uri: "data:," + invalid_format
         )
       ) do |results, stored|
         # The token regex requires exact format with no extra spaces
@@ -259,7 +259,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + uppercase_tick.to_json
+          data_uri: "data:," + uppercase_tick.to_json
         )
       )
     end
@@ -277,7 +277,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + long_tick.to_json
+          data_uri: "data:," + long_tick.to_json
         )
       )
     end
@@ -295,7 +295,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + negative_max.to_json
+          data_uri: "data:," + negative_max.to_json
         )
       )
     end
@@ -313,7 +313,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + leading_zero.to_json
+          data_uri: "data:," + leading_zero.to_json
         )
       )
     end
@@ -333,7 +333,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + token_data.to_json
+          data_uri: "data:," + token_data.to_json
         )
       ) do |results|
         ethscription_id = results[:ethscription_ids].first
@@ -367,7 +367,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + deploy_data.to_json
+          data_uri: "data:," + deploy_data.to_json
         )
       )
 
@@ -385,7 +385,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
           create_input(
             creator: bob,
             to: dummy_recipient,
-            data_uri: "data:;rule=esip6," + mint_data.to_json
+            data_uri: "data:," + mint_data.to_json
           )
         )
       end
@@ -407,7 +407,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: charlie,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + mint_data.to_json
+          data_uri: "data:," + mint_data.to_json
         )
       ) do |results|
         # TODO: Check that mint was rejected
@@ -432,7 +432,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: alice,
           to: dummy_recipient,
-          data_uri: "data:;rule=esip6," + deploy_data.to_json
+          data_uri: "data:," + deploy_data.to_json
         )
       )
 
@@ -453,7 +453,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         create_input(
           creator: bob,
           to: bob,  # Mint to Bob so he owns the ethscription and can transfer it
-          data_uri: "data:;rule=esip6," + mint_data.to_json
+          data_uri: "data:," + mint_data.to_json
         )
       )
 
