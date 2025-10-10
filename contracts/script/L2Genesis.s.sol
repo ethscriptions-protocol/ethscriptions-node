@@ -210,9 +210,18 @@ contract L2Genesis is Script {
         ethscriptions.registerProtocol("erc-20", Predeploys.TOKEN_MANAGER);
         console.log("Registered erc-20 protocol handler:", Predeploys.TOKEN_MANAGER);
 
-        // Register the CollectionsManager as the handler for collections protocol
-        ethscriptions.registerProtocol("collections", Predeploys.COLLECTIONS_MANAGER);
-        console.log("Registered collections protocol handler:", Predeploys.COLLECTIONS_MANAGER);
+        // Check environment variable for collections
+        // Default to true so forge tests work (they don't go through genesis_generator.rb)
+        // Production explicitly sets ENABLE_COLLECTIONS=false
+        bool enableCollections = vm.envOr("ENABLE_COLLECTIONS", true);
+
+        if (enableCollections) {
+            // Register the CollectionsManager as the handler for collections protocol
+            ethscriptions.registerProtocol("collections", Predeploys.COLLECTIONS_MANAGER);
+            console.log("Registered collections protocol handler:", Predeploys.COLLECTIONS_MANAGER);
+        } else {
+            console.log("Collections protocol not registered (ENABLE_COLLECTIONS=false)");
+        }
     }
 
     /// @notice Deploy L1Block contract (stores L1 block attributes)
