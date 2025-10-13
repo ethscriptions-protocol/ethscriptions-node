@@ -116,95 +116,86 @@ module Clockwork
   every(import_interval.seconds, 'import_ethscriptions_blocks') do
     importer = EthBlockImporter.new
 
-    # Handle Ctrl+C gracefully
-    Signal.trap('INT') do
-      puts "\n[#{Time.now}] Received INT signal, shutting down..."
-      importer.shutdown
-      exit 130
-    end
-
-    Signal.trap('TERM') do
-      puts "\n[#{Time.now}] Received TERM signal, shutting down..."
-      importer.shutdown
-      exit 143
-    end
-
     # Track statistics
     total_blocks_imported = 0
-    total_ethscriptions = 0
     start_time = Time.now
 
-    loop do
-      begin
-        initial_block = importer.current_max_eth_block_number
+    begin
+      loop do
+        begin
+          initial_block = importer.current_max_eth_block_number
 
-        # Import blocks
-        importer.import_blocks_until_done
+          # Import blocks
+          importer.import_blocks_until_done
 
-        final_block = importer.current_max_eth_block_number
-        blocks_imported = final_block - initial_block
+          final_block = importer.current_max_eth_block_number
+          blocks_imported = final_block - initial_block
 
-        if blocks_imported > 0
-          total_blocks_imported += blocks_imported
+          if blocks_imported > 0
+            total_blocks_imported += blocks_imported
 
-          puts "[#{Time.now}] Imported #{blocks_imported} blocks (#{initial_block + 1} to #{final_block})"
+            puts "[#{Time.now}] Imported #{blocks_imported} blocks (#{initial_block + 1} to #{final_block})"
 
-          # Show validation summary if enabled
-          if ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
-            puts importer.validation_summary
+            # Show validation summary if enabled
+            if ENV.fetch('VALIDATION_ENABLED').casecmp?('true')
+              puts importer.validation_summary
+            end
+          else
+            # We're caught up
+            elapsed = (Time.now - start_time).round(2)
+
+            if total_blocks_imported > 0
+              puts "[#{Time.now}] Session summary: Imported #{total_blocks_imported} blocks in #{elapsed}s"
+
+              # Reset counters
+              total_blocks_imported = 0
+              start_time = Time.now
+            end
+
+            puts "[#{Time.now}] Caught up at block #{final_block}. Waiting #{import_interval}s..."
           end
-        else
-          # We're caught up
-          elapsed = (Time.now - start_time).round(2)
 
-          if total_blocks_imported > 0
-            puts "[#{Time.now}] Session summary: Imported #{total_blocks_imported} blocks in #{elapsed}s"
+        rescue EthBlockImporter::BlockNotReadyToImportError => e
+          # This is normal when caught up
+          current = importer.current_max_eth_block_number
+          puts "[#{Time.now}] Waiting for new blocks (current: #{current})..."
 
-            # Reset counters
-            total_blocks_imported = 0
-            start_time = Time.now
-          end
+        rescue EthBlockImporter::ReorgDetectedError => e
+          Rails.logger.warn "[#{Time.now}] ⚠️  Reorg detected! Reinitializing importer..."
+          puts "[#{Time.now}] ⚠️  Reorg detected at block #{importer.current_max_eth_block_number}"
 
-          puts "[#{Time.now}] Caught up at block #{final_block}. Waiting #{import_interval}s..."
+          # Reinitialize importer to handle reorg
+          importer.shutdown
+          importer = EthBlockImporter.new
+          puts "[#{Time.now}] Importer reinitialized. Continuing from block #{importer.current_max_eth_block_number}"
+
+        rescue EthBlockImporter::ValidationFailureError => e
+          Rails.logger.fatal "[#{Time.now}] 🛑 VALIDATION FAILURE: #{e.message}"
+          puts "[#{Time.now}] 🛑 VALIDATION FAILURE - System stopping for investigation"
+          puts "[#{Time.now}] Fix the validation issue and restart manually"
+          exit 1
+
+        rescue EthBlockImporter::ValidationStalledError => e
+          # Validation is behind - wait longer and keep trying
+          Rails.logger.info "[#{Time.now}] ⏸️  VALIDATION BEHIND: #{e.message}"
+          puts "[#{Time.now}] ⏸️  Validation is behind - waiting #{import_interval * 2}s for validation to catch up..."
+          sleep import_interval * 2  # Wait longer when validation is behind
+          # Don't exit - continue the loop to retry
+
+        rescue => e
+          Rails.logger.error "Import error: #{e.class} - #{e.message}"
+          Rails.logger.error e.backtrace.first(20).join("\n")
+
+          puts "[#{Time.now}] ❌ Error: #{e.message}"
+
+          # For other errors, wait and retry
+          puts "[#{Time.now}] Retrying in #{import_interval}s..."
         end
 
-      rescue EthBlockImporter::BlockNotReadyToImportError => e
-        # This is normal when caught up
-        current = importer.current_max_eth_block_number
-        puts "[#{Time.now}] Waiting for new blocks (current: #{current})..."
-
-      rescue EthBlockImporter::ReorgDetectedError => e
-        Rails.logger.warn "[#{Time.now}] ⚠️  Reorg detected! Reinitializing importer..."
-        puts "[#{Time.now}] ⚠️  Reorg detected at block #{importer.current_max_eth_block_number}"
-
-        # Reinitialize importer to handle reorg
-        importer = EthBlockImporter.new
-        puts "[#{Time.now}] Importer reinitialized. Continuing from block #{importer.current_max_eth_block_number}"
-
-      rescue EthBlockImporter::ValidationFailureError => e
-        Rails.logger.fatal "[#{Time.now}] 🛑 VALIDATION FAILURE: #{e.message}"
-        puts "[#{Time.now}] 🛑 VALIDATION FAILURE - System stopping for investigation"
-        puts "[#{Time.now}] Fix the validation issue and restart manually"
-        exit 1
-
-      rescue EthBlockImporter::ValidationStalledError => e
-        # Validation is behind - wait longer and keep trying
-        Rails.logger.info "[#{Time.now}] ⏸️  VALIDATION BEHIND: #{e.message}"
-        puts "[#{Time.now}] ⏸️  Validation is behind - waiting #{import_interval * 2}s for validation to catch up..."
-        sleep import_interval * 2  # Wait longer when validation is behind
-        # Don't exit - continue the loop to retry
-
-      rescue => e
-        Rails.logger.error "Import error: #{e.class} - #{e.message}"
-        Rails.logger.error e.backtrace.first(20).join("\n")
-
-        puts "[#{Time.now}] ❌ Error: #{e.message}"
-
-        # For other errors, wait and retry
-        puts "[#{Time.now}] Retrying in #{import_interval}s..."
+        sleep import_interval
       end
-
-      sleep import_interval
+    ensure
+      importer&.shutdown
     end
   end
 end
