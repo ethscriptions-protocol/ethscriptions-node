@@ -14,6 +14,13 @@ GIT
       rbsecp256k1 (~> 6.0)
       scrypt (~> 3.0)
 
+GIT
+  remote: https://github.com/0xfacet/facet_rails_common.git
+  revision: 2d5cf107df9ea12bb7ab59a8b1ce4d38b4de483b
+  specs:
+    facet_rails_common (0.1.0)
+      order_query (~> 0.5.3)
+
 GEM
   remote: https://rubygems.org/
   specs:
@@ -216,6 +223,9 @@ GEM
       bigdecimal (>= 3.0)
       ostruct (>= 0.2)
     openssl (3.3.0)
+    order_query (0.5.5)
+      activerecord (>= 5.0, < 8.1)
+      activesupport (>= 5.0, < 8.1)
     ostruct (0.6.3)
     parallel (1.27.0)
     parser (3.2.2.4)
@@ -406,6 +416,7 @@ DEPENDENCIES
   debug
   dotenv-rails (~> 2.8)
   eth!
+  facet_rails_common!
   fastlz (~> 0.1.0)
   httparty (~> 0.22.0)
   jwt (~> 2.8)
