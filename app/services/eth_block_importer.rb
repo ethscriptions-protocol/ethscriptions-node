@@ -329,9 +329,14 @@ class EthBlockImporter
     start = Time.current
 
     # Fetch block data from prefetcher
-    ImportProfiler.start("prefetch_fetch")
-    response = @prefetcher.fetch(block_number)
-    ImportProfiler.stop("prefetch_fetch")
+    begin
+      ImportProfiler.start('prefetcher_fetch')
+      response = prefetcher.fetch(block_number)
+    rescue L1RpcPrefetcher::BlockFetchError => e
+      raise BlockNotReadyToImportError.new(e.message)
+    ensure
+      ImportProfiler.stop('prefetcher_fetch')
+    end
 
     # Handle cancellation, fetch failure, or block not ready
     if response.nil?

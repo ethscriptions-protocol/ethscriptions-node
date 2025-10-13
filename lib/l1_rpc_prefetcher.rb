@@ -3,8 +3,9 @@ require 'retriable'
 
 class L1RpcPrefetcher
   include Memery
+  class BlockFetchError < StandardError; end
   def initialize(ethereum_client:,
-                 ahead: ENV.fetch('L1_PREFETCH_FORWARD', Rails.env.test? ? 5 : 200).to_i,
+                 ahead: ENV.fetch('L1_PREFETCH_FORWARD', Rails.env.test? ? 5 : 20).to_i,
                  threads: ENV.fetch('L1_PREFETCH_THREADS', 2).to_i)
     @eth = ethereum_client
     @ahead = ahead
@@ -13,13 +14,18 @@ class L1RpcPrefetcher
     # Thread-safe collections and pool
     @pool = Concurrent::FixedThreadPool.new(threads)
     @promises = Concurrent::Map.new
+    @last_chain_tip = current_l1_block_number
 
     Rails.logger.info "L1RpcPrefetcher initialized with #{threads} threads"
   end
 
   def ensure_prefetched(from_block)
-    # Check current chain tip first
-    latest = get_latest_block_number
+    distance_from_last_tip = @last_chain_tip - from_block
+    latest = if distance_from_last_tip > 10
+               cached_l1_block_number
+             else
+               current_l1_block_number
+             end
 
     # Don't prefetch beyond chain tip
     to_block = [from_block + @ahead, latest].min
@@ -45,16 +51,18 @@ class L1RpcPrefetcher
 
     Rails.logger.debug "Fetching block #{block_number}, promise state: #{promise.state}"
 
-    begin
-      result = promise.value!(timeout)
-      Rails.logger.debug "Got result for block #{block_number}"
-
-      result
-    rescue Concurrent::TimeoutError => e
-      Rails.logger.error "Timeout fetching block #{block_number} after #{timeout}s"
+    result = promise.value!(timeout)
+    
+    if result.nil? || result == :not_ready_sentinel
       @promises.delete(block_number)
-      raise
+      message = result.nil? ?
+        "Block #{block_number} fetch timed out after #{timeout}s" :
+        "Block #{block_number} not yet available on L1"
+      raise BlockFetchError.new(message)
     end
+
+    Rails.logger.debug "Got result for block #{block_number}"
+    result
   end
 
   def clear_older_than(min_keep)
@@ -96,20 +104,30 @@ class L1RpcPrefetcher
 
   def shutdown
     @pool.shutdown
-    if @pool.wait_for_termination(30)
-      Rails.logger.info "L1 RPC Prefetcher thread pool shut down successfully"
-    else
-      Rails.logger.warn "L1 RPC Prefetcher shutdown timed out, forcing kill"
-      @pool.kill
+    terminated = @pool.wait_for_termination(3)
+    @pool.kill unless terminated
+    @promises.each_pair do |_, promise|
+      begin
+        if promise.pending? && promise.respond_to?(:cancel)
+          promise.cancel
+        end
+      rescue StandardError => e
+        Rails.logger.warn "Failed cancelling promise during shutdown: #{e.message}"
+      end
     end
+    @promises.clear
+    Rails.logger.info(
+      terminated ?
+        'L1 RPC Prefetcher thread pool shut down successfully' :
+        'L1 RPC Prefetcher shutdown timed out after 3s, pool killed'
+    )
+    terminated
+  rescue StandardError => e
+    Rails.logger.error("Error during L1RpcPrefetcher shutdown: #{e.message}\n#{e.backtrace.join("\n")}")
+    false
   end
 
   private
-
-  def get_latest_block_number
-    @eth.get_block_number
-  end
-  memoize :get_latest_block_number, ttl: 12.seconds
 
   def enqueue_single(block_number)
     @promises.compute_if_absent(block_number) do
@@ -132,13 +150,12 @@ class L1RpcPrefetcher
     client = @eth
 
     Retriable.retriable(tries: 3, base_interval: 1, max_interval: 4) do
-
       block = client.get_block(block_number, true)
 
       # Handle case where block doesn't exist yet (normal when caught up)
       if block.nil?
         Rails.logger.debug "Block #{block_number} not yet available on L1"
-        return { error: :not_ready, block_number: block_number }
+        return :not_ready_sentinel
       end
 
       receipts = client.get_transaction_receipts(block_number)
@@ -154,4 +171,13 @@ class L1RpcPrefetcher
       }
     end
   end
+
+  def current_l1_block_number
+    @last_chain_tip = @eth.get_block_number
+  end
+
+  def cached_l1_block_number
+    current_l1_block_number
+  end
+  memoize :cached_l1_block_number, ttl: 12.seconds
 end
