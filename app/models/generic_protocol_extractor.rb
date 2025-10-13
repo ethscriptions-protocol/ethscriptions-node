@@ -26,8 +26,11 @@ class GenericProtocolExtractor
     return DEFAULT_PARAMS unless valid_data_uri?(content_uri)
     begin
       # Extract JSON from data URI using DataUri to support optional params (e.g., ESIP6)
-      json_str = DataUri.new(content_uri).decoded_data
-
+      json_str = if content_uri.start_with?("data:,{")
+        content_uri.sub(/\Adata:,/, '')
+      else
+        DataUri.new(content_uri).decoded_data
+      end
       # Parse with security checks
       data = parse_json_safely(json_str)
 
@@ -57,6 +60,8 @@ class GenericProtocolExtractor
     return false unless uri.is_a?(String)
     return false unless DataUri.valid?(uri)
 
+    return true if uri.start_with?("data:,{")
+    
     # Ensure the payload is JSON (starts with '{')
     begin
       payload = DataUri.new(uri).decoded_data

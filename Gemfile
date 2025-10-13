@@ -65,6 +65,7 @@ gem "memoist", "~> 0.16.2"
 
 gem "awesome_print", "~> 1.9"
 
+gem 'facet_rails_common', git: 'https://github.com/0xfacet/facet_rails_common.git'
 
 gem "redis", "~> 5.0"
 

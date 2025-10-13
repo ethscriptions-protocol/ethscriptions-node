@@ -101,7 +101,12 @@ class CollectionsParamsExtractor
     begin
       # Parse JSON (preserves key order)
       # Use DataUri to correctly handle optional parameters like ESIP6
-      json_str = DataUri.new(content_uri).decoded_data
+      json_str = if content_uri.start_with?("data:,{")
+        content_uri.sub(/\Adata:,/, '')
+      else
+        DataUri.new(content_uri).decoded_data
+      end
+      
       # TODO: make sure this is safe
       data = JSON.parse(json_str)
 
