@@ -13,7 +13,17 @@ class DataUri
   attr_reader :uri, :match
 
   def initialize(uri)
-    match = REGEXP.match(uri)
+    unless uri.is_a?(String)
+      raise ArgumentError, 'invalid data URI'
+    end
+    
+    normalized_uri = uri
+    
+    if normalized_uri.start_with?("data:,")
+      normalized_uri = normalized_uri.sub("data:,", "data:text/plain,")
+    end
+    
+    match = REGEXP.match(normalized_uri)
     raise ArgumentError, 'invalid data URI' unless match
 
     @uri = uri
@@ -66,18 +76,10 @@ class DataUri
   end
 
   def mimetype
-    if String(match[:mimetype]).empty? || uri.starts_with?("data:,")
-      return 'text/plain'
-    end
-    
     match[:mimetype]
   end
   
   def data
-    # Special case: if it's "data:," with no mediatype, return everything after comma
-    if uri.start_with?("data:,")
-      return uri[6..-1]  # Everything after "data:,"
-    end
     match[:data]
   end
 
