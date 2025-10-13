@@ -55,7 +55,7 @@ contract GenesisEthscriptions is Ethscriptions {
             creator: creator,
             initialOwner: params.initialOwner,
             previousOwner: creator,
-            ethscriptionNumber: totalSupply,
+            ethscriptionNumber: totalSupply(),
             createdAt: createdAt,
             l1BlockNumber: l1BlockNumber,
             l2BlockNumber: 0,  // Genesis ethscriptions have no L2 block
@@ -63,12 +63,12 @@ contract GenesisEthscriptions is Ethscriptions {
         });
 
         // Use ethscription number as token ID
-        tokenId = totalSupply;
+        tokenId = totalSupply();
 
         // Store the mapping from token ID to transaction hash
         tokenIdToTransactionHash[tokenId] = params.transactionHash;
 
-        totalSupply++;
+        // Token count is automatically tracked by enumerable's _update
 
         // If initial owner is zero (burned), mint to creator then burn
         if (params.initialOwner == address(0)) {
@@ -121,7 +121,7 @@ contract L2Genesis is Script {
         config = L2GenesisConfig.getConfig();
 
         // Use a deployer account for genesis setup
-        address deployer = makeAddr("deployer");
+        address deployer = Predeploys.DEPOSITOR_ACCOUNT;
         vm.startPrank(deployer);
         vm.chainId(config.l2ChainID);
 
@@ -187,14 +187,41 @@ contract L2Genesis is Script {
 
         // Deploy other Ethscriptions-related contracts
         _setEthscriptionsCode(Predeploys.TOKEN_MANAGER, "TokenManager");
+        _setEthscriptionsCode(Predeploys.COLLECTIONS_MANAGER, "CollectionsManager");
         _setEthscriptionsCode(Predeploys.ETHSCRIPTIONS_PROVER, "EthscriptionsProver");
         _setEthscriptionsCode(Predeploys.ERC20_TEMPLATE, "EthscriptionsERC20");
+        _setEthscriptionsCode(Predeploys.ERC721_TEMPLATE, "EthscriptionERC721");
 
         createGenesisEthscriptions();
-        
+
+        // Register protocol handlers
+        registerProtocolHandlers();
+
         // Disable initializers on all Ethscriptions contracts
         _disableInitializers(Predeploys.ETHSCRIPTIONS);
         _disableInitializers(Predeploys.ERC20_TEMPLATE);
+        _disableInitializers(Predeploys.ERC721_TEMPLATE);
+    }
+
+    /// @notice Register protocol handlers with the Ethscriptions contract
+    function registerProtocolHandlers() internal {
+        Ethscriptions ethscriptions = Ethscriptions(Predeploys.ETHSCRIPTIONS);
+
+        ethscriptions.registerProtocol("erc-20", Predeploys.TOKEN_MANAGER);
+        console.log("Registered erc-20 protocol handler:", Predeploys.TOKEN_MANAGER);
+
+        // Check environment variable for collections
+        // Default to true so forge tests work (they don't go through genesis_generator.rb)
+        // Production explicitly sets ENABLE_COLLECTIONS=false
+        bool enableCollections = vm.envOr("ENABLE_COLLECTIONS", true);
+
+        if (enableCollections) {
+            // Register the CollectionsManager as the handler for collections protocol
+            ethscriptions.registerProtocol("collections", Predeploys.COLLECTIONS_MANAGER);
+            console.log("Registered collections protocol handler:", Predeploys.COLLECTIONS_MANAGER);
+        } else {
+            console.log("Collections protocol not registered (ENABLE_COLLECTIONS=false)");
+        }
     }
 
     /// @notice Deploy L1Block contract (stores L1 block attributes)
@@ -293,13 +320,10 @@ contract L2Genesis is Script {
         params.mediaType = vm.parseJsonString(json, string.concat(basePath, ".media_type"));
         params.mimeSubtype = vm.parseJsonString(json, string.concat(basePath, ".mime_subtype"));
         params.esip6 = vm.parseJsonBool(json, string.concat(basePath, ".esip6"));
-        params.tokenParams = Ethscriptions.TokenParams({
-            op: "",
+        params.protocolParams = Ethscriptions.ProtocolParams({
             protocol: "",
-            tick: "",
-            max: 0,
-            lim: 0,
-            amt: 0
+            operation: "",
+            data: ""
         });
         
         // Create the genesis ethscription with all values

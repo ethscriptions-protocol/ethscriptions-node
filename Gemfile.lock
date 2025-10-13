@@ -1,6 +1,6 @@
 GIT
   remote: https://github.com/0xFacet/eth.rb.git
-  revision: da52c74fe9baecf17177f6b5bfee9f42c1b18970
+  revision: 089128a7703aa5eeafe41d538f05732b29340188
   branch: sync/v0.5.16-nohex
   specs:
     eth (0.5.16)
@@ -13,13 +13,6 @@ GIT
       openssl (~> 3.3)
       rbsecp256k1 (~> 6.0)
       scrypt (~> 3.0)
-
-GIT
-  remote: https://github.com/0xfacet/facet_rails_common.git
-  revision: 2d5cf107df9ea12bb7ab59a8b1ce4d38b4de483b
-  specs:
-    facet_rails_common (0.1.0)
-      order_query (~> 0.5.3)
 
 GEM
   remote: https://rubygems.org/
@@ -105,7 +98,7 @@ GEM
     awesome_print (1.9.2)
     base64 (0.2.0)
     benchmark (0.4.1)
-    bigdecimal (3.1.5)
+    bigdecimal (3.2.3)
     bls12-381 (0.3.0)
       h2c (~> 0.2.0)
     bootsnap (1.17.0)
@@ -157,7 +150,7 @@ GEM
       csv
       mini_mime (>= 1.0.0)
       multi_xml (>= 0.5.2)
-    httpx (1.6.0)
+    httpx (1.6.2)
       http-2 (>= 1.0.0)
     i18n (1.14.1)
       concurrent-ruby (~> 1.0)
@@ -223,9 +216,6 @@ GEM
       bigdecimal (>= 3.0)
       ostruct (>= 0.2)
     openssl (3.3.0)
-    order_query (0.5.5)
-      activerecord (>= 5.0, < 8.1)
-      activesupport (>= 5.0, < 8.1)
     ostruct (0.6.3)
     parallel (1.27.0)
     parser (3.2.2.4)
@@ -285,7 +275,7 @@ GEM
       rake (>= 12.2)
       thor (~> 1.0, >= 1.2.2)
       zeitwerk (~> 2.6)
-    rake (13.1.0)
+    rake (13.3.0)
     rbi (0.3.6)
       prism (~> 1.0)
       rbs (>= 3.4.4)
@@ -416,7 +406,6 @@ DEPENDENCIES
   debug
   dotenv-rails (~> 2.8)
   eth!
-  facet_rails_common!
   fastlz (~> 0.1.0)
   httparty (~> 0.22.0)
   jwt (~> 2.8)

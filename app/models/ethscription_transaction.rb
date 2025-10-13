@@ -107,7 +107,7 @@ class EthscriptionTransaction < T::Struct
   def function_selector
     function_signature = case ethscription_operation
     when 'create'
-      'createEthscription((bytes32,bytes32,address,bytes,string,string,string,bool,(string,string,string,uint256,uint256,uint256)))'
+      'createEthscription((bytes32,bytes32,address,bytes,string,string,string,bool,(string,string,bytes)))'
     when 'transfer'
       if transfer_ids && transfer_ids.any?
         'transferMultipleEthscriptions(bytes32[],address)'
@@ -223,7 +223,9 @@ class EthscriptionTransaction < T::Struct
     mime_subtype = mimetype&.split('/')&.last
     raw_content = data_uri.decoded_data.b
     esip6 = DataUri.esip6?(content_uri) || false
-    token_params = TokenParamsExtractor.extract(content_uri)
+
+    # Extract protocol params - returns [protocol, operation, encoded_data]
+    protocol, operation, encoded_data = ProtocolExtractor.for_calldata(content_uri)
 
     # Hash the content for protocol uniqueness
     content_uri_hash_hex = Digest::SHA256.hexdigest(content_uri)
@@ -232,6 +234,13 @@ class EthscriptionTransaction < T::Struct
     # Convert hex strings to binary for ABI encoding
     tx_hash_bin = hex_to_bin(eth_transaction.transaction_hash)
     owner_bin = address_to_bin(initial_owner)
+
+    # Build protocol params tuple
+    protocol_params = [
+      protocol,        # string protocol
+      operation,       # string operation
+      encoded_data     # bytes data
+    ]
 
     # Encode parameters
     params = [
@@ -243,11 +252,11 @@ class EthscriptionTransaction < T::Struct
       media_type.to_s.b,                       # string
       mime_subtype.to_s.b,                     # string
       esip6,                                   # bool esip6
-      token_params                             # TokenParams tuple
+      protocol_params                          # ProtocolParams tuple
     ]
 
     encoded = Eth::Abi.encode(
-      ['(bytes32,bytes32,address,bytes,string,string,string,bool,(string,string,string,uint256,uint256,uint256))'],
+      ['(bytes32,bytes32,address,bytes,string,string,string,bool,(string,string,bytes))'],
       [params]
     )
 

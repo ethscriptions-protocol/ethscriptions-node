@@ -57,13 +57,10 @@ contract EndToEndCompressionTest is TestSetup {
     //     //     mimeSubtype: "png",
     //     //     esip6: false,
     //     //     isCompressed: isCompressed,
-    //     //     tokenParams: Ethscriptions.TokenParams({
-    //     //         op: "",
+    //     //     protocolParams: Ethscriptions.ProtocolParams({
     //     //         protocol: "",
-    //     //         tick: "",
-    //     //         max: 0,
-    //     //         lim: 0,
-    //     //         amt: 0
+    //     //         operation: "",
+    //     //         data: ""
     //     //     })
     //     // }));
         

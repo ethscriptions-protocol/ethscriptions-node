@@ -1,19 +1,4 @@
 module EthscriptionsTestHelper
-  def generate_ethscription_data(params = {})
-    content_type = params[:content_type]
-    content = params[:content]
-
-    "data:#{content_type};charset=utf-8,#{content}"
-  end
-
-  def build_ethscription_input(params = {})
-    raw_input = params[:input] || params[:data]
-    return normalize_to_hex(raw_input) if raw_input
-
-    data_uri = generate_ethscription_data(params)
-    string_to_hex(data_uri)
-  end
-
   def normalize_to_hex(value)
     return nil if value.nil?
 
@@ -80,6 +65,24 @@ module EthscriptionsTestHelper
 
   def get_ethscription_content(tx_hash, block_tag: 'latest')
     StorageReader.get_ethscription_with_content(tx_hash, block_tag: block_tag)
+  end
+
+  # Collections protocol helpers
+  def get_collection_state(collection_id)
+    CollectionsReader.get_collection_state(collection_id)
+  end
+
+  def get_collection_metadata(collection_id)
+    CollectionsReader.get_collection_metadata(collection_id)
+  end
+
+  def collection_exists?(collection_id)
+    state = CollectionsReader.get_collection_state(collection_id)
+    state && state[:collectionContract] != '0x0000000000000000000000000000000000000000'
+  end
+
+  def get_collection_item(collection_id, index)
+    CollectionsReader.get_collection_item(collection_id, index)
   end
 
   # Generate a valid Ethereum address from a seed string
@@ -326,7 +329,6 @@ module EthscriptionsTestHelper
     ethscription_id = results[:ethscription_ids].first
     expect(ethscription_id).to be_present, "Expected ethscription to be created"
 
-    # Check L2 receipt status
     expect(results[:l2_receipts].first[:status]).to eq('0x1'), "L2 transaction should succeed"
 
     # Check contract storage
@@ -354,6 +356,26 @@ module EthscriptionsTestHelper
       raise "invalid reason"
     end
 
+    results
+  end
+
+  # Ethscription created but protocol extraction failed
+  # Useful for testing invalid protocol data that's still valid ethscription data
+  def expect_protocol_extraction_failure(tx_spec, esip_overrides: {}, &block)
+    results = import_l1_block([tx_spec], esip_overrides: esip_overrides)
+
+    # Ethscription should be created (it's valid data)
+    ethscription_id = results[:ethscription_ids].first
+    expect(ethscription_id).to be_present, "Ethscription should be created"
+
+    # L2 transaction should succeed
+    expect(results[:l2_receipts].first[:status]).to eq('0x1'), "L2 transaction should succeed"
+
+    # Content should be stored
+    stored = get_ethscription_content(ethscription_id)
+    expect(stored).to be_present, "Ethscription should be stored in contract"
+
+    yield results, stored if block_given?
     results
   end
 
@@ -515,12 +537,6 @@ module EthscriptionsTestHelper
     )
     ethscription_transactions.each { |tx| tx.ethscriptions_block = template_ethscriptions_block }
 
-    mock_ethereum_client = instance_double(EthRpcClient,
-      get_block_number: block_number,
-      get_block: block_data,
-      get_transaction_receipts: receipts_data
-    )
-
     # Mock the prefetcher to return our mock data in the correct format
     eth_block = EthBlock.from_rpc_result(block_data)
     ethscriptions_block = EthscriptionsBlock.from_eth_block(eth_block)
@@ -541,7 +557,6 @@ module EthscriptionsTestHelper
     old_client = importer.ethereum_client
     old_prefetcher = importer.prefetcher
 
-    importer.ethereum_client = mock_ethereum_client
     importer.instance_variable_set(:@prefetcher, mock_prefetcher)
 
     l2_blocks, eth_blocks = importer.import_next_block
@@ -555,6 +570,10 @@ module EthscriptionsTestHelper
       .reject { |l2_tx| l2_tx['from']&.downcase == SysConfig::SYSTEM_ADDRESS.to_hex.downcase }  # Exclude system transactions
       .map do |l2_tx|
         receipt = EthRpcClient.l2.get_transaction_receipt(l2_tx['hash'])
+
+        # if receipt['status'] != '0x1'
+          # ap EthRpcClient.l2.trace_transaction(l2_tx['hash'])
+        # end
         {
           tx_hash: l2_tx['hash'],
           status: receipt['status'],
@@ -568,6 +587,7 @@ module EthscriptionsTestHelper
     ethscription_ids = imported_ethscriptions.flat_map do |tx|
       case tx.ethscription_operation
       when :create
+        # For create operations, the ethscription ID is the transaction hash
         [tx.eth_transaction.tx_hash.to_hex]
       when :transfer
         if tx.transfer_ids.present?

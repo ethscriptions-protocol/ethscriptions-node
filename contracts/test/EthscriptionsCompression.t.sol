@@ -98,8 +98,8 @@ contract EthscriptionsCompressionTest is TestSetup {
     //         mimeSubtype: "png",
     //         esip6: false,
     //         isCompressed: false,
-    //         tokenParams: Ethscriptions.TokenParams({
-    //             op: "", protocol: "", tick: "", max: 0, lim: 0, amt: 0
+    //         protocolParams: Ethscriptions.ProtocolParams({
+    //             protocol: "", operation: "", data: ""
     //         })
     //     }));
     //     uint256 uncompressedGas = gasStart - gasleft();
@@ -116,8 +116,8 @@ contract EthscriptionsCompressionTest is TestSetup {
     //         mimeSubtype: "png",
     //         esip6: false,
     //         isCompressed: true,
-    //         tokenParams: Ethscriptions.TokenParams({
-    //             op: "", protocol: "", tick: "", max: 0, lim: 0, amt: 0
+    //         protocolParams: Ethscriptions.ProtocolParams({
+    //             protocol: "", operation: "", data: ""
     //         })
     //     }));
     //     uint256 compressedGas = gasStart - gasleft();

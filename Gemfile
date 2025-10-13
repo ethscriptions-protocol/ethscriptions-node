@@ -68,8 +68,6 @@ gem "awesome_print", "~> 1.9"
 
 gem "redis", "~> 5.0"
 
-gem 'facet_rails_common', git: 'https://github.com/0xfacet/facet_rails_common.git'
-
 gem "cbor", "~> 0.5.9"
 
 gem 'rswag-api'

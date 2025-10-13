@@ -5,10 +5,10 @@ import "./ERC721EthscriptionsUpgradeable.sol";
 import {SSTORE2} from "solady/utils/SSTORE2.sol";
 import {Base64} from "solady/utils/Base64.sol";
 import {LibString} from "solady/utils/LibString.sol";
-import "./TokenManager.sol";
 import "./EthscriptionsProver.sol";
 import "./libraries/Predeploys.sol";
 import "./L2/L1Block.sol";
+import "./protocols/IProtocolHandler.sol";
 
 /// @title Ethscriptions ERC-721 Contract
 /// @notice Mints Ethscriptions as ERC-721 tokens based on L1 transaction data
@@ -49,13 +49,10 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         uint256 size;           // Size of raw content
     }
     
-    struct TokenParams {
-        string op;        // "deploy" or "mint"
-        string protocol;  
-        string tick;
-        uint256 max;      // max supply for deploy
-        uint256 lim;      // mint limit for deploy
-        uint256 amt;      // amount for mint
+    struct ProtocolParams {
+        string protocol;  // Protocol identifier (e.g., "erc-20", "collections", etc.)
+        string operation; // Operation to perform (e.g., "mint", "deploy", "create_collection", etc.)
+        bytes data;       // ABI-encoded parameters specific to the protocol/operation
     }
     
     struct CreateEthscriptionParams {
@@ -67,7 +64,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         string mediaType;
         string mimeSubtype;
         bool esip6;
-        TokenParams tokenParams;  // Token operation data (optional)
+        ProtocolParams protocolParams;  // Protocol operation data (optional)
     }
 
     /// @dev Transaction hash => Ethscription data
@@ -82,17 +79,22 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     /// @dev Content URI hash => exists (for protocol uniqueness check)
     mapping(bytes32 => bool) public contentUriExists;
     
-    /// @dev Total number of ethscriptions created
-    uint256 public totalSupply;
+    // totalSupply is now inherited from ERC721EnumerableUpgradeable
 
     /// @dev Mapping from ethscription number (token ID) to transaction hash
     mapping(uint256 => bytes32) public tokenIdToTransactionHash;
 
-    /// @dev Token Manager contract (pre-deployed at known address)
-    TokenManager public constant tokenManager = TokenManager(Predeploys.TOKEN_MANAGER);
-    
     /// @dev Ethscriptions Prover contract (pre-deployed at known address)
     EthscriptionsProver public constant prover = EthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER);
+
+    /// @dev Protocol registry - maps protocol names to handler addresses
+    mapping(string => address) public protocolHandlers;
+
+    /// @dev Track which protocol an ethscription uses
+    mapping(bytes32 => string) public ethscriptionProtocol;
+
+    /// @dev Event emitted when a protocol handler is registered
+    event ProtocolRegistered(string indexed protocol, address indexed handler);
 
     /// @dev Array of genesis ethscription transaction hashes that need events emitted
     /// @notice This array is populated during genesis and cleared (by popping) when events are emitted
@@ -124,11 +126,17 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     error EthscriptionAlreadyExists();
     error EthscriptionDoesNotExist();
 
-    /// @notice Emitted when a TokenManager operation fails but ethscription continues
-    event TokenManagerFailed(
+    /// @notice Emitted when a protocol handler operation fails but ethscription continues
+    event ProtocolHandlerFailed(
         bytes32 indexed transactionHash,
-        string operation,
+        string protocol,
         bytes revertData
+    );
+
+    /// @notice Emitted when a protocol handler operation succeeds
+    event ProtocolHandlerSuccess(
+        bytes32 indexed transactionHash,
+        string protocol
     );
 
 
@@ -225,6 +233,23 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         return "ETHSCRIPTIONS";
     }
 
+    /// @notice Register a protocol handler
+    /// @param protocol The protocol identifier (e.g., "erc-20", "collections")
+    /// @param handler The address of the handler contract
+    /// @dev Only callable by the depositor address (used during genesis setup)
+    function registerProtocol(string calldata protocol, address handler) external {
+        // Only the depositor address can register protocols
+        // This is set during genesis and used for initial protocol setup
+        require(
+            msg.sender == Predeploys.DEPOSITOR_ACCOUNT,
+            "Only depositor can register protocols"
+        );
+        require(handler != address(0), "Invalid handler address");
+        require(protocolHandlers[protocol] == address(0), "Protocol already registered");
+        protocolHandlers[protocol] = handler;
+        emit ProtocolRegistered(protocol, handler);
+    }
+
     /// @notice Create (mint) a new ethscription token
     /// @dev Called via system transaction with msg.sender spoofed as the actual creator
     /// @param params Struct containing all ethscription creation parameters
@@ -260,7 +285,7 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             creator: creator,
             initialOwner: params.initialOwner,
             previousOwner: creator, // Initially same as creator
-            ethscriptionNumber: totalSupply,
+            ethscriptionNumber: totalSupply(),
             createdAt: block.timestamp,
             l1BlockNumber: L1_BLOCK.number(),
             l2BlockNumber: uint64(block.number),
@@ -268,12 +293,12 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         });
 
         // Use ethscription number as token ID
-        tokenId = totalSupply;
+        tokenId = totalSupply();
 
         // Store the mapping from token ID to transaction hash
         tokenIdToTransactionHash[tokenId] = params.transactionHash;
 
-        totalSupply++;
+        // Token count is automatically tracked by enumerable's _update
 
         // Mint to initial owner (if address(0), mint to creator then transfer)
         if (params.initialOwner == address(0)) {
@@ -292,17 +317,29 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             contentBySha[contentSha].pointers.length
         );
 
-        // Handle token operations - delegate all logic to TokenManager
-        // No need to check if it's a token operation, handleTokenOperation will check the op
-        // Use try-catch to prevent TokenManager failures from reverting ethscription creation
-        try tokenManager.handleTokenOperation(
-            params.transactionHash,
-            params.initialOwner,
-            params.tokenParams
-        ) {} catch (bytes memory revertData) {
-            // Token operation failed, but ethscription creation should continue
-            // The ethscription is still valid even if token processing fails
-            emit TokenManagerFailed(params.transactionHash, "handleTokenOperation", revertData);
+        // Handle protocol operations if a protocol is specified
+        if (bytes(params.protocolParams.protocol).length > 0) {
+            // Track which protocol this ethscription uses
+            ethscriptionProtocol[params.transactionHash] = params.protocolParams.protocol;
+
+            address handler = protocolHandlers[params.protocolParams.protocol];
+            // Call the operation-specific function directly
+            // We encode with (bytes32, bytes) - the handler will decode the bytes into its expected struct
+            bytes memory callData = abi.encodeWithSignature(
+                string.concat("op_", params.protocolParams.operation, "(bytes32,bytes)"),
+                params.transactionHash,
+                params.protocolParams.data
+            );
+            
+            (bool success, bytes memory revertData) = handler.call(callData);
+
+            if (!success) {
+                // Protocol operation failed, but ethscription creation should continue
+                // The ethscription is still valid even if protocol processing fails
+                emit ProtocolHandlerFailed(params.transactionHash, params.protocolParams.protocol, revertData);
+            } else {
+                emit ProtocolHandlerSuccess(params.transactionHash, params.protocolParams.protocol);
+            }
         }
     }
 
@@ -395,10 +432,17 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             emit EthscriptionTransferred(txHash, from, to, tokenId);
             etsc.previousOwner = from;
 
-            // Use try-catch to prevent TokenManager failures from reverting transfers
-            try tokenManager.handleTokenTransfer(txHash, from, to) {} catch (bytes memory revertData) {
-                // Token transfer handling failed, but ethscription transfer should continue
-                emit TokenManagerFailed(txHash, "handleTokenTransfer", revertData);
+            // Notify protocol handler about the transfer if this ethscription has a protocol
+            string memory protocol = ethscriptionProtocol[txHash];
+            if (bytes(protocol).length > 0) {
+                address handler = protocolHandlers[protocol];
+                if (handler != address(0)) {
+                    try IProtocolHandler(handler).onTransfer(txHash, from, to) {
+                        emit ProtocolHandlerSuccess(txHash, protocol);
+                    } catch (bytes memory revertData) {
+                        emit ProtocolHandlerFailed(txHash, protocol, revertData);
+                    }
+                }
             }
         }
 
@@ -436,34 +480,13 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             '",'
         );
 
-        string memory mediaField;
-        if (etsc.content.mimetype.startsWith("image/")) {
-            // Image content: wrap in SVG for pixel-perfect rendering
-            string memory imageDataUri = _getContentDataURI(txHash);
-            string memory svg = _wrapImageInSVG(imageDataUri);
-            string memory svgDataUri = _constructDataURI("image/svg+xml", bytes(svg));
-            mediaField = string.concat(
-                '"image":"',
-                svgDataUri.escapeJSON(),
-                '"'
-            );
-        } else {
-            // Non-image content: use animation_url
-            string memory animationUrl;
-            if (etsc.content.mimetype.eq("text/html")) {
-                // HTML passes through directly but always as base64 for safety
-                animationUrl = _getHtmlDataURI(txHash);
-            } else {
-                // Everything else (including application/json) uses the HTML viewer
-                animationUrl = _getTextViewerDataURI(txHash);
-            }
-
-            mediaField = string.concat(
-                '"animation_url":"',
-                animationUrl.escapeJSON(),
-                '"'
-            );
-        }
+        // Use getMediaUri to generate media field
+        (string memory mediaType, string memory mediaUri) = this.getMediaUri(txHash);
+        string memory mediaField = string.concat(
+            '"', mediaType, '":"',
+            mediaUri.escapeJSON(),
+            '"'
+        );
 
         string memory json = string.concat(
             jsonStart,
@@ -560,6 +583,37 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         );
     }
 
+    /// @notice Get the media URI for an ethscription (image or animation_url)
+    /// @param txHash The transaction hash of the ethscription
+    /// @return mediaType Either "image" or "animation_url"
+    /// @return mediaUri The data URI for the media
+    function getMediaUri(bytes32 txHash) public view requireExists(txHash) returns (string memory mediaType, string memory mediaUri) {
+        Ethscription storage etsc = ethscriptions[txHash];
+
+        if (etsc.content.mimetype.startsWith("image/")) {
+            // Image content: wrap in SVG for pixel-perfect rendering
+            string memory imageDataUri = _getContentDataURI(txHash);
+            string memory svg = _wrapImageInSVG(imageDataUri);
+            string memory svgDataUri = _constructDataURI("image/svg+xml", bytes(svg));
+            return ("image", svgDataUri);
+        } else {
+            // Non-image content: use animation_url
+            string memory animationUrl;
+
+            // Check for media types that should pass through directly
+            if (etsc.content.mimetype.startsWith("video/") ||
+                etsc.content.mimetype.startsWith("audio/") ||
+                etsc.content.mimetype.eq("text/html")) {
+                // Video, audio, and HTML pass through directly as data URIs
+                animationUrl = _getContentDataURI(txHash);
+            } else {
+                // Everything else (text/plain, application/json, etc.) uses the HTML viewer
+                animationUrl = _getTextViewerDataURI(txHash);
+            }
+            return ("animation_url", animationUrl);
+        }
+    }
+
     /// @dev Helper function to get content as data URI
     function _getContentDataURI(bytes32 txHash) internal view returns (string memory) {
         Ethscription storage etsc = ethscriptions[txHash];
@@ -603,12 +657,12 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         return _constructDataURI("text/html", bytes(html));
     }
 
-    /// @dev Helper function to get HTML content as base64 data URI
-    function _getHtmlDataURI(bytes32 txHash) internal view returns (string memory) {
-        bytes memory content = getEthscriptionContent(txHash);
 
-        // Always return HTML as base64 for safety
-        return _constructDataURI("text/html", content);
+    /// @notice Check if an ethscription exists
+    /// @param transactionHash The transaction hash to check
+    /// @return true if the ethscription exists
+    function exists(bytes32 transactionHash) external view returns (bool) {
+        return _ethscriptionExists(transactionHash);
     }
 
     /// @notice Get current owner of an ethscription

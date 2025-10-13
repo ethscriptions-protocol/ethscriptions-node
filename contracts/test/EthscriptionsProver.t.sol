@@ -104,7 +104,7 @@ contract EthscriptionsProverTest is TestSetup {
                 mediaType: "text",
                 mimeSubtype: "plain",
                 esip6: false,
-                tokenParams: Ethscriptions.TokenParams("", "", "", 0, 0, 0)
+                protocolParams: Ethscriptions.ProtocolParams("", "", "")
             })
         );
         vm.stopPrank();
@@ -120,7 +120,7 @@ contract EthscriptionsProverTest is TestSetup {
                 mediaType: "text",
                 mimeSubtype: "plain",
                 esip6: false,
-                tokenParams: Ethscriptions.TokenParams("", "", "", 0, 0, 0)
+                protocolParams: Ethscriptions.ProtocolParams("", "", "")
             })
         );
         vm.stopPrank();
@@ -142,7 +142,7 @@ contract EthscriptionsProverTest is TestSetup {
                 mediaType: "text",
                 mimeSubtype: "plain",
                 esip6: false,
-                tokenParams: Ethscriptions.TokenParams("", "", "", 0, 0, 0)
+                protocolParams: Ethscriptions.ProtocolParams("", "", "")
             })
         );
         vm.stopPrank();

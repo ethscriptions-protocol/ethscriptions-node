@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../src/Ethscriptions.sol";
 import "../src/TokenManager.sol";
+import "../src/CollectionsManager.sol";
 import "../src/EthscriptionsProver.sol";
 import "../src/EthscriptionsERC20.sol";
 import "../src/L2/L2ToL1MessagePasser.sol";
@@ -17,6 +18,7 @@ import "../script/L2Genesis.s.sol";
 abstract contract TestSetup is Test {
     Ethscriptions public ethscriptions;
     TokenManager public tokenManager;
+    CollectionsManager public collectionsManager;
     EthscriptionsProver public prover;
     L1Block public l1Block;
     
@@ -46,8 +48,10 @@ abstract contract TestSetup is Test {
         
         // Store contract references for tests
         tokenManager = TokenManager(Predeploys.TOKEN_MANAGER);
+        collectionsManager = CollectionsManager(Predeploys.COLLECTIONS_MANAGER);
         prover = EthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER);
-        
+        l1Block = L1Block(Predeploys.L1_BLOCK_ATTRIBUTES);
+
         // ERC20 template doesn't need initialization - it's just a template for cloning
     }
 
@@ -153,13 +157,10 @@ abstract contract TestSetup is Test {
             mediaType: mediaType,
             mimeSubtype: mimeSubtype,
             esip6: esip6,
-            tokenParams: Ethscriptions.TokenParams({
-                op: "",
+            protocolParams: Ethscriptions.ProtocolParams({
                 protocol: "",
-                tick: "",
-                max: 0,
-                lim: 0,
-                amt: 0
+                operation: "",
+                data: ""
             })
         });
     }
