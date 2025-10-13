@@ -96,16 +96,133 @@ RSpec.describe "Tokens Protocol", type: :integration do
   end
 
   describe "Token Minting" do
-    before do
-      # Deploy a token first
+    context "with shared token deployment" do
+      before do
+        # Deploy a token first
+        deploy_data = {
+          "p" => "erc-20",
+          "op" => "deploy",
+          "tick" => "minttest",
+          "max" => "1000000",
+          "lim" => "100"
+        }
+
+        expect_ethscription_success(
+          create_input(
+            creator: alice,
+            to: dummy_recipient,
+            data_uri: "data:," + deploy_data.to_json
+          )
+        )
+      end
+
+      it "mints tokens successfully" do
+        mint_data = {
+          "p" => "erc-20",
+          "op" => "mint",
+          "tick" => "minttest",
+          "id" => "1",
+          "amt" => "100"
+        }
+
+        expect_ethscription_success(
+          create_input(
+            creator: bob,
+            to: dummy_recipient,
+            data_uri: "data:," + mint_data.to_json
+          )
+        ) do |results|
+          # Verify the ethscription was created
+          ethscription_id = results[:ethscription_ids].first
+          stored = get_ethscription_content(ethscription_id)
+
+          expect(stored[:content]).to include('"op":"mint"')
+          expect(stored[:content]).to include('"amt":"100"')
+
+          # TODO: Once TokenManager contract is available, verify mint
+          # balance = get_token_balance("test", bob)
+          # expect(balance).to eq(100)
+
+          # mint_info = get_mint_info("test", 1)
+          # expect(mint_info[:minter]).to eq(bob)
+          # expect(mint_info[:amount]).to eq(100)
+        end
+      end
+    end  # end of "with shared token deployment" context
+
+    it "handles sequential mints with incremental IDs" do
+      # Deploy a separate token for this test to avoid conflicts
       deploy_data = {
         "p" => "erc-20",
         "op" => "deploy",
-        "tick" => "minttest",
+        "tick" => "seqmint",  # Different token name
         "max" => "1000000",
         "lim" => "100"
       }
-# binding.irb
+
+      deploy_results = import_l1_block([
+        create_input(
+          creator: alice,
+          to: dummy_recipient,
+          data_uri: "data:," + deploy_data.to_json
+        )
+      ], esip_overrides: {})
+
+      expect(deploy_results[:l2_receipts].first[:status]).to eq('0x1'), "Token deployment should succeed"
+
+      # First mint with ID 1
+      mint1_data = {
+        "p" => "erc-20",
+        "op" => "mint",
+        "tick" => "seqmint",
+        "id" => "1",
+        "amt" => "100"
+      }
+
+      results1 = import_l1_block([
+        create_input(
+          creator: bob,
+          to: dummy_recipient,
+          data_uri: "data:," + mint1_data.to_json
+        )
+      ], esip_overrides: {})
+
+      expect(results1[:l2_receipts].first[:status]).to eq('0x1'), "First mint should succeed"
+
+      # Second mint with ID 2
+      mint2_data = {
+        "p" => "erc-20",
+        "op" => "mint",
+        "tick" => "seqmint",
+        "id" => "2",
+        "amt" => "100"
+      }
+
+      results2 = import_l1_block([
+        create_input(
+          creator: bob,
+          to: dummy_recipient,
+          data_uri: "data:," + mint2_data.to_json
+        )
+      ], esip_overrides: {})
+
+      expect(results2[:l2_receipts].first[:status]).to eq('0x1'), "Second mint should succeed"
+
+      # TODO: Verify both mints in contract
+      # balance = get_token_balance("seqmint", bob)
+      # expect(balance).to eq(200)  # 100 + 100
+    end
+
+    it "rejects mint with duplicate ID" do
+      # Deploy a separate token for this test
+      deploy_data = {
+        "p" => "erc-20",
+        "op" => "deploy",
+        "tick" => "duptest",
+        "max" => "1000000",
+        "lim" => "100"
+      }
+
       expect_ethscription_success(
         create_input(
           creator: alice,
@@ -113,88 +230,12 @@ RSpec.describe "Tokens Protocol", type: :integration do
           data_uri: "data:," + deploy_data.to_json
         )
       )
-    end
 
-    it "mints tokens successfully" do
       mint_data = {
         "p" => "erc-20",
         "op" => "mint",
-        "tick" => "minttest",
+        "tick" => "duptest",
         "id" => "1",
-        "amt" => "100"
-      }
-
-      expect_ethscription_success(
-        create_input(
-          creator: bob,
-          to: dummy_recipient,
-          data_uri: "data:," + mint_data.to_json
-        )
-      ) do |results|
-        # Verify the ethscription was created
-        ethscription_id = results[:ethscription_ids].first
-        stored = get_ethscription_content(ethscription_id)
-
-        expect(stored[:content]).to include('"op":"mint"')
-        expect(stored[:content]).to include('"amt":"100"')
-
-        # TODO: Once TokenManager contract is available, verify mint
-        # balance = get_token_balance("test", bob)
-        # expect(balance).to eq(100)
-
-        # mint_info = get_mint_info("test", 1)
-        # expect(mint_info[:minter]).to eq(bob)
-        # expect(mint_info[:amount]).to eq(100)
-      end
-    end
-
-    it "handles sequential mints with incremental IDs" do
-      # First mint with ID 2 (ID 1 would conflict with before block)
-      mint1_data = {
-        "p" => "erc-20",
-        "op" => "mint",
-        "tick" => "minttest",
-        "id" => "2",
-        "amt" => "50"
-      }
-
-      expect_ethscription_success(
-        create_input(
-          creator: bob,
-          to: dummy_recipient,
-          data_uri: "data:," + mint1_data.to_json
-        )
-      )
-
-      # Second mint with ID 3
-      mint2_data = {
-        "p" => "erc-20",
-        "op" => "mint",
-        "tick" => "minttest",
-        "id" => "3",
-        "amt" => "50"
-      }
-
-      expect_ethscription_success(
-        create_input(
-          creator: bob,
-          to: dummy_recipient,
-          data_uri: "data:," + mint2_data.to_json
-        )
-      )
-
-      # TODO: Verify both mints in contract
-      # balance = get_token_balance("test", bob)
-      # expect(balance).to eq(100)  # 50 + 50
-    end
-
-    it "rejects mint with duplicate ID" do
-      # Use ID 4 to avoid conflict with before block which uses ID 1
-      mint_data = {
-        "p" => "erc-20",
-        "op" => "mint",
-        "tick" => "minttest",
-        "id" => "4",
         "amt" => "100"
       }
 
@@ -208,20 +249,14 @@ RSpec.describe "Tokens Protocol", type: :integration do
       )
 
       # Second mint with same ID creates ethscription but protocol handler rejects
-      expect_ethscription_success(
+      expect_ethscription_failure(
         create_input(
           creator: charlie,
           to: dummy_recipient,
           data_uri: "data:," + mint_data.to_json
-        )
-      ) do |results|
-        # TODO: Check contract state - mint should be rejected
-        # balance = get_token_balance("test", charlie)
-        # expect(balance).to eq(0)  # Mint rejected due to duplicate ID
-
-        # Check event logs for rejection
-        # expect(results[:l2_receipts].first[:logs]).to include_event("MintRejected")
-      end
+        ),
+        reason: :revert
+      )
     end
   end
 

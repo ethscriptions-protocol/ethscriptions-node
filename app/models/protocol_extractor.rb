@@ -19,20 +19,24 @@ class ProtocolExtractor
 
     # Try extractors in order of strictness
     # 1. Token protocol (most strict - exact character position matters)
-    # 2. Collections protocol (strict - exact key order required)
-    # 3. Generic protocol (flexible - for all other protocols)
+    # 2. Collections protocol (strict - exact key order required) - gated by ENABLE_COLLECTIONS
+    # 3. Generic protocol (flexible - for all other protocols) - gated by ENABLE_GENERIC_PROTOCOLS
 
     # Try token extractor first (most strict)
     result = try_token_extractor(content_uri)
     return result if result
 
-    # Try collections extractor next
-    result = try_collections_extractor(content_uri)
-    return result if result
+    # Try collections extractor next (if enabled)
+    if ENV['ENABLE_COLLECTIONS'] == 'true'
+      result = try_collections_extractor(content_uri)
+      return result if result
+    end
 
-    # Try generic extractor last (most flexible)
-    # result = try_generic_extractor(content_uri)
-    # return result if result
+    # Try generic extractor last (if enabled)
+    if ENV['ENABLE_GENERIC_PROTOCOLS'] == 'true'
+      result = try_generic_extractor(content_uri)
+      return result if result
+    end
 
     # No protocol could be extracted
     nil
