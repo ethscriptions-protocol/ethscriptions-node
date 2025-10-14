@@ -40,7 +40,7 @@ contract TokenManager is IProtocolHandler {
         uint256 amount;
     }
 
-    address public constant erc20Template = Predeploys.ERC20_TEMPLATE;
+    address public constant erc20Template = Predeploys.ERC20_TEMPLATE_IMPLEMENTATION;
     address public constant ethscriptions = Predeploys.ETHSCRIPTIONS;
     
     // Track deployed tokens by protocol+tick for find-or-create

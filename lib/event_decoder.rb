@@ -16,7 +16,7 @@ class EventDecoder
     'Transfer(address,address,uint256)'
   ).unpack1('H*')
 
-  ETHSCRIPTIONS_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+  ETHSCRIPTIONS_ADDRESS = SysConfig::ETHSCRIPTIONS_ADDRESS.to_hex
 
   class << self
     def decode_receipt_logs(receipt)

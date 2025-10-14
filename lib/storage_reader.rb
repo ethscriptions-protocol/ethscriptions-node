@@ -1,5 +1,5 @@
 class StorageReader
-  ETHSCRIPTIONS_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+  ETHSCRIPTIONS_ADDRESS = SysConfig::ETHSCRIPTIONS_ADDRESS.to_hex
 
   # Define the nested ContentInfo struct
   CONTENT_INFO_STRUCT = {

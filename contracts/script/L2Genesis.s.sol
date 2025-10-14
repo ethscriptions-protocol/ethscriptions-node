@@ -183,24 +183,42 @@ contract L2Genesis is Script {
     
     /// @notice Set up Ethscriptions system contracts
     function setEthscriptionsPredeploys() internal {
-        // Create genesis Ethscriptions first (this handles the Ethscriptions contract setup)
+        // Ensure proxies exist across the full 0x330… namespace, mirroring OP's approach
+        bytes memory proxyCode = vm.getDeployedCode("Proxy.sol:Proxy");
+        uint160 prefix = uint160(0x330) << 148;
 
-        // Deploy other Ethscriptions-related contracts
-        _setEthscriptionsCode(Predeploys.TOKEN_MANAGER, "TokenManager");
-        _setEthscriptionsCode(Predeploys.COLLECTIONS_MANAGER, "CollectionsManager");
-        _setEthscriptionsCode(Predeploys.ETHSCRIPTIONS_PROVER, "EthscriptionsProver");
-        _setEthscriptionsCode(Predeploys.ERC20_TEMPLATE, "EthscriptionsERC20");
-        _setEthscriptionsCode(Predeploys.ERC721_TEMPLATE, "EthscriptionERC721");
+        for (uint256 i = 0; i < PREDEPLOY_COUNT; i++) {
+            address addr = address(prefix | uint160(i));
 
+            // Deploy proxy shell and prime nonce for deterministic CREATEs
+            vm.etch(addr, proxyCode);
+            vm.setNonce(addr, 1);
+            setProxyAdminSlot(addr, Predeploys.PROXY_ADMIN);
+
+            // Wire up implementations for the Ethscriptions predeploys that use proxies
+            bool isProxiedContract = addr == Predeploys.ETHSCRIPTIONS ||
+                addr == Predeploys.TOKEN_MANAGER ||
+                addr == Predeploys.ETHSCRIPTIONS_PROVER ||
+                addr == Predeploys.COLLECTIONS_MANAGER;
+            if (isProxiedContract) {
+                address impl = Predeploys.predeployToCodeNamespace(addr);
+                setImplementation(addr, impl);
+            }
+        }
+
+        // Set implementation code for non-ETHSCRIPTIONS contracts now
+        _setImplementationCodeNamed(Predeploys.TOKEN_MANAGER, "TokenManager");
+        _setImplementationCodeNamed(Predeploys.COLLECTIONS_MANAGER, "CollectionsManager");
+        _setImplementationCodeNamed(Predeploys.ETHSCRIPTIONS_PROVER, "EthscriptionsProver");
+        // Templates live directly at their implementation addresses (no proxy wrapping)
+        _setCodeAt(Predeploys.ERC20_TEMPLATE_IMPLEMENTATION, "EthscriptionsERC20");
+        _setCodeAt(Predeploys.ERC721_TEMPLATE_IMPLEMENTATION, "EthscriptionERC721");
+
+        // Create genesis Ethscriptions (writes via proxy to proxy storage)
         createGenesisEthscriptions();
 
-        // Register protocol handlers
+        // Register protocol handlers via the Ethscriptions proxy
         registerProtocolHandlers();
-
-        // Disable initializers on all Ethscriptions contracts
-        _disableInitializers(Predeploys.ETHSCRIPTIONS);
-        _disableInitializers(Predeploys.ERC20_TEMPLATE);
-        _disableInitializers(Predeploys.ERC721_TEMPLATE);
     }
 
     /// @notice Register protocol handlers with the Ethscriptions contract
@@ -265,13 +283,15 @@ contract L2Genesis is Script {
         uint256 totalCount = abi.decode(vm.parseJson(json, ".metadata.totalCount"), (uint256));
         console.log("Found", totalCount, "genesis Ethscriptions");
         
-        // First, etch the GenesisEthscriptions contract temporarily
-        address ethscriptionsAddr = Predeploys.ETHSCRIPTIONS;
-        vm.etch(ethscriptionsAddr, type(GenesisEthscriptions).runtimeCode);
+        // Use the Ethscriptions proxy address and its implementation code-namespace address
+        address ethscriptionsProxy = Predeploys.ETHSCRIPTIONS;
+        address implAddr = Predeploys.predeployToCodeNamespace(ethscriptionsProxy);
 
-        vm.setNonce(ethscriptionsAddr, 1);
+        // Temporarily etch GenesisEthscriptions at the implementation address
+        vm.etch(implAddr, type(GenesisEthscriptions).runtimeCode);
 
-        GenesisEthscriptions genesisContract = GenesisEthscriptions(ethscriptionsAddr);
+        // Call through the proxy using the GenesisEthscriptions interface
+        GenesisEthscriptions genesisContract = GenesisEthscriptions(ethscriptionsProxy);
 
         // Process each ethscription (this will increment the nonce as SSTORE2 contracts are deployed)
         for (uint256 i = 0; i < totalCount; i++) {
@@ -280,9 +300,9 @@ contract L2Genesis is Script {
 
         console.log("Created", totalCount, "genesis Ethscriptions");
 
-        // Now etch the real Ethscriptions contract over the GenesisEthscriptions
-        // IMPORTANT: Do NOT reset the nonce here - it needs to continue from where it left off
-        _setEthscriptionsCode(ethscriptionsAddr, "Ethscriptions");
+        // Overwrite the implementation bytecode with the real Ethscriptions
+        // Do not reset nonce on the proxy; we only swap the implementation code
+        _setImplementationCodeNamed(Predeploys.ETHSCRIPTIONS, "Ethscriptions");
     }
 
     /// @notice Helper to create a single genesis ethscription
@@ -343,11 +363,22 @@ contract L2Genesis is Script {
         vm.store(_addr, Constants.INITIALIZABLE_STORAGE, bytes32(uint256(0x000000000000000000000000000000000000000000000000ffffffffffffffff)));
     }
     
-    /// @notice Set bytecode for Ethscriptions contracts
-    function _setEthscriptionsCode(address _addr, string memory _name) internal {
+    /// @notice Set implementation bytecode for a given predeploy using an explicit contract name
+    function _setImplementationCodeNamed(address _predeploy, string memory _name) internal returns (address impl) {
+        impl = Predeploys.predeployToCodeNamespace(_predeploy);
         bytes memory code = vm.getDeployedCode(string.concat(_name, ".sol:", _name));
+        console.log("Setting implementation code for", _predeploy, "to", impl);
+        
+        _disableInitializers(impl);
+        
+        vm.etch(impl, code);
+    }
+
+    /// @notice Etch contract bytecode directly at a target address (used for non-proxy templates)
+    function _setCodeAt(address _addr, string memory _name) internal {
+        bytes memory code = vm.getDeployedCode(string.concat(_name, ".sol:", _name));
+        _disableInitializers(_addr);
         vm.etch(_addr, code);
-        // Don't reset nonce here - let the caller manage it
     }
 
     /// @notice Set the admin of a proxy contract
