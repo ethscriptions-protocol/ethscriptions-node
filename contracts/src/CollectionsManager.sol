@@ -96,7 +96,7 @@ contract CollectionsManager is IProtocolHandler {
         // Note: Similar to ItemData but without ethscriptionId (can't change)
     }
 
-    address public constant erc721Template = Predeploys.ERC721_TEMPLATE;
+    address public constant erc721Template = Predeploys.ERC721_TEMPLATE_IMPLEMENTATION;
     address public constant ethscriptions = Predeploys.ETHSCRIPTIONS;
 
     // Track deployed collections by ID

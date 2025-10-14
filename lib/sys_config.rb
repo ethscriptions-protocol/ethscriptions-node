@@ -8,7 +8,7 @@ module SysConfig
   # System addresses (matching Solidity contracts)
   SYSTEM_ADDRESS = Address20.from_hex("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001")
   L1_INFO_ADDRESS = Address20.from_hex("0x4200000000000000000000000000000000000015")
-  ETHSCRIPTIONS_ADDRESS = Address20.from_hex("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE")
+  ETHSCRIPTIONS_ADDRESS = Address20.from_hex("0x3300000000000000000000000000000000000001")
   TOKEN_MANAGER_ADDRESS = Address20.from_hex("0x3300000000000000000000000000000000000002")
   
   # Deposit transaction domains
