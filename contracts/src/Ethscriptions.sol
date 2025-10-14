@@ -70,9 +70,6 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
     /// @dev Transaction hash => Ethscription data
     mapping(bytes32 => Ethscription) internal ethscriptions;
     
-    // TODO: add full URI to ethscriptions  struct return value
-    // TODO: show something for text
-    
     /// @dev Content SHA => ContentData (stores actual content and metadata)
     mapping(bytes32 => ContentData) public contentBySha;
 
@@ -635,8 +632,9 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             'const p="', encodedPayload, '";',
             'const m="', mimetype.escapeJSON(), '";',  // Escape to prevent breaking out of JS string
             'function d(b){try{return decodeURIComponent(atob(b).split("").map(c=>"%"+("00"+c.charCodeAt(0).toString(16)).slice(-2)).join(""))}catch{return null}}',
-            'const r=d(p)||"";let t=r;',
-            'try{const j=JSON.parse(r);t=JSON.stringify(j,null,2)}catch{}',
+            'const r=d(p);let t="";',
+            'if(r!==null){t=r;try{const j=JSON.parse(r);t=JSON.stringify(j,null,2)}catch{}}',
+            'else{t="data:"+m+";base64,"+p}',  // Reconstruct data URI if UTF-8 decoding fails
             'document.getElementById("o").textContent=t||"(empty)";',
             '</script></body></html>'
         );
