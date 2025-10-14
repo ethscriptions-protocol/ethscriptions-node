@@ -394,4 +394,123 @@ contract EthscriptionsTokenTest is TestSetup {
         assertEq(token.name(), "erc-20 TEST");  // Token name format is "protocol tick"
         assertEq(token.cap(), 1000000 ether); // Original cap, not the duplicate's
     }
+
+    function testMintWithInvalidIdZero() public {
+        // Deploy the token first
+        testTokenDeploy();
+
+        // Try to mint with ID 0 (invalid - must be >= 1)
+        vm.prank(bob);
+        string memory mintContent = 'data:,{"p":"erc-20","op":"mint","tick":"TEST","id":"0","amt":"1000"}';
+
+        TokenManager.MintOperation memory mintOp = TokenManager.MintOperation({
+            tick: "TEST",
+            id: 0, // Invalid ID - should be >= 1
+            amount: 1000
+        });
+
+        bytes32 invalidMintHash = bytes32(uint256(0xDEAD));
+        Ethscriptions.CreateEthscriptionParams memory mintParams = createTokenParams(
+            invalidMintHash,
+            bob,
+            mintContent,
+            "erc-20",
+            "mint",
+            abi.encode(mintOp)
+        );
+
+        // Create the ethscription - mint should fail due to invalid ID
+        uint256 tokenId = ethscriptions.createEthscription(mintParams);
+
+        // Ethscription should still be created (but mint failed)
+        assertEq(ethscriptions.ownerOf(tokenId), bob);
+
+        // Verify no tokens were minted due to invalid ID
+        address tokenAddr = tokenManager.getTokenAddressByTick("TEST");
+        EthscriptionsERC20 token = EthscriptionsERC20(tokenAddr);
+        assertEq(token.balanceOf(bob), 0); // Bob should have no tokens
+
+        // Verify total minted didn't increase
+        TokenManager.TokenInfo memory info = tokenManager.getTokenInfo(DEPLOY_TX_HASH);
+        assertEq(info.totalMinted, 0);
+    }
+
+    function testMintWithIdTooHigh() public {
+        // Deploy the token first
+        testTokenDeploy();
+
+        // Try to mint with ID beyond maxId (maxSupply/mintAmount = 1000000/1000 = 1000)
+        vm.prank(bob);
+        string memory mintContent = 'data:,{"p":"erc-20","op":"mint","tick":"TEST","id":"1001","amt":"1000"}';
+
+        TokenManager.MintOperation memory mintOp = TokenManager.MintOperation({
+            tick: "TEST",
+            id: 1001, // Invalid ID - maxId is 1000
+            amount: 1000
+        });
+
+        bytes32 invalidMintHash = bytes32(uint256(0xBEEF));
+        Ethscriptions.CreateEthscriptionParams memory mintParams = createTokenParams(
+            invalidMintHash,
+            bob,
+            mintContent,
+            "erc-20",
+            "mint",
+            abi.encode(mintOp)
+        );
+
+        // Create the ethscription - mint should fail due to ID too high
+        uint256 tokenId = ethscriptions.createEthscription(mintParams);
+
+        // Ethscription should still be created (but mint failed)
+        assertEq(ethscriptions.ownerOf(tokenId), bob);
+
+        // Verify no tokens were minted due to invalid ID
+        address tokenAddr = tokenManager.getTokenAddressByTick("TEST");
+        EthscriptionsERC20 token = EthscriptionsERC20(tokenAddr);
+        assertEq(token.balanceOf(bob), 0); // Bob should have no tokens
+
+        // Verify total minted didn't increase
+        TokenManager.TokenInfo memory info = tokenManager.getTokenInfo(DEPLOY_TX_HASH);
+        assertEq(info.totalMinted, 0);
+    }
+
+    function testMintWithMaxValidId() public {
+        // Deploy the token first
+        testTokenDeploy();
+
+        // Mint with the maximum valid ID (maxSupply/mintAmount = 1000000/1000 = 1000)
+        vm.prank(bob);
+        string memory mintContent = 'data:,{"p":"erc-20","op":"mint","tick":"TEST","id":"1000","amt":"1000"}';
+
+        TokenManager.MintOperation memory mintOp = TokenManager.MintOperation({
+            tick: "TEST",
+            id: 1000, // Maximum valid ID
+            amount: 1000
+        });
+
+        bytes32 validMintHash = bytes32(uint256(0xCAFE));
+        Ethscriptions.CreateEthscriptionParams memory mintParams = createTokenParams(
+            validMintHash,
+            bob,
+            mintContent,
+            "erc-20",
+            "mint",
+            abi.encode(mintOp)
+        );
+
+        uint256 tokenId = ethscriptions.createEthscription(mintParams);
+
+        // Verify Bob owns the mint ethscription NFT
+        assertEq(ethscriptions.ownerOf(tokenId), bob);
+
+        // Verify Bob has the tokens (1000 * 10^18 with 18 decimals)
+        address tokenAddr = tokenManager.getTokenAddressByTick("TEST");
+        EthscriptionsERC20 token = EthscriptionsERC20(tokenAddr);
+        assertEq(token.balanceOf(bob), 1000 ether); // Should have tokens
+
+        // Verify total minted increased
+        TokenManager.TokenInfo memory info = tokenManager.getTokenInfo(DEPLOY_TX_HASH);
+        assertEq(info.totalMinted, 1000);
+    }
 }

@@ -123,6 +123,11 @@ contract TokenManager is IProtocolHandler {
         // Validate mint amount matches token's configured limit
         require(mintOp.amount == token.mintAmount, "amt mismatch");
 
+        // Validate mint ID is within valid range (1 to maxId)
+        // maxId = maxSupply / mintAmount (both are in user units, not 18 decimals)
+        uint256 maxId = token.maxSupply / token.mintAmount;
+        require(mintOp.id >= 1 && mintOp.id <= maxId, "Invalid mint ID");
+
         // Track this ethscription as a token item
         tokenItems[txHash] = TokenItem({
             deployTxHash: token.deployTxHash,
