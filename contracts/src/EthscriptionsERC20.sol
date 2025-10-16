@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20CappedUpgradeable.sol";
+import "./ERC20NullOwnerCappedUpgradeable.sol";
 import "./libraries/Predeploys.sol";
 
-contract EthscriptionsERC20 is ERC20Upgradeable, ERC20CappedUpgradeable {
+/// @title EthscriptionsERC20
+/// @notice ERC20 with cap that supports null address ownership; only TokenManager can mint/transfer
+contract EthscriptionsERC20 is ERC20NullOwnerCappedUpgradeable {
     address public constant tokenManager = Predeploys.TOKEN_MANAGER;
-
     bytes32 public deployTxHash; // The ethscription hash that deployed this token
-    
+
     function initialize(
         string memory name_,
         string memory symbol_,
@@ -20,52 +20,32 @@ contract EthscriptionsERC20 is ERC20Upgradeable, ERC20CappedUpgradeable {
         __ERC20Capped_init(cap_);
         deployTxHash = deployTxHash_;
     }
-    
+
     modifier onlyTokenManager() {
         require(msg.sender == tokenManager, "Only TokenManager");
         _;
     }
-    
+
+    // TokenManager-only mint that allows to == address(0)
     function mint(address to, uint256 amount) external onlyTokenManager {
-        _mint(to, amount);
+        _update(address(0), to, amount);
     }
-    
+
+    // TokenManager-only transfer that allows to/from == address(0)
     function forceTransfer(address from, address to, uint256 amount) external onlyTokenManager {
-        // This is used by TokenManager to shadow NFT transfers
-        // It bypasses approval checks since it's a system-level transfer
-        _transfer(from, to, amount);
+        _update(from, to, amount);
     }
-    
-    // Override transfer functions to prevent user-initiated transfers
-    // Only the TokenManager can move tokens via forceTransfer
+
+    // Disable user-initiated ERC20 flows
     function transfer(address, uint256) public pure override returns (bool) {
         revert("Transfers only allowed via Ethscriptions NFT");
     }
-    
+
     function transferFrom(address, address, uint256) public pure override returns (bool) {
         revert("Transfers only allowed via Ethscriptions NFT");
     }
-    
+
     function approve(address, uint256) public pure override returns (bool) {
         revert("Approvals not allowed");
-    }
-    
-    function increaseAllowance(address, uint256) public pure returns (bool) {
-        revert("Approvals not allowed");
-    }
-    
-    function decreaseAllowance(address, uint256) public pure returns (bool) {
-        revert("Approvals not allowed");
-    }
-    
-    // Required overrides for multiple inheritance
-    function _update(address from, address to, uint256 value)
-        internal
-        override(ERC20Upgradeable, ERC20CappedUpgradeable)
-    {
-        super._update(from, to, value);
-
-        // Token balance proving has been removed in favor of ethscription-only proving
-        // Token balances can be derived from ethscription ownership and transfer history
     }
 }

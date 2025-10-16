@@ -392,7 +392,7 @@ contract EthscriptionsTokenTest is TestSetup {
         address tokenAddr = tokenManager.getTokenAddressByTick("TEST");
         EthscriptionsERC20 token = EthscriptionsERC20(tokenAddr);
         assertEq(token.name(), "erc-20 TEST");  // Token name format is "protocol tick"
-        assertEq(token.cap(), 1000000 ether); // Original cap, not the duplicate's
+        assertEq(token.maxSupply(), 1000000 ether); // Original cap (maxSupply), not the duplicate's
     }
 
     function testMintWithInvalidIdZero() public {
@@ -512,5 +512,73 @@ contract EthscriptionsTokenTest is TestSetup {
         // Verify total minted increased
         TokenManager.TokenInfo memory info = tokenManager.getTokenInfo(DEPLOY_TX_HASH);
         assertEq(info.totalMinted, 1000);
+    }
+
+    function testMintToNullOwnerMintsERC20ToZero() public {
+        // Deploy the token under tick TEST
+        testTokenDeploy();
+
+        // Prepare a mint where the Ethscription initial owner is the null address
+        bytes32 nullMintTx = bytes32(uint256(0xBADD0));
+        string memory mintContent = 'data:,{"p":"erc-20","op":"mint","tick":"TEST","id":"1","amt":"1000"}';
+
+        TokenManager.MintOperation memory mintOp = TokenManager.MintOperation({
+            tick: "TEST",
+            id: 1,
+            amount: 1000
+        });
+
+        // Creator is Alice, but initial owner is address(0)
+        Ethscriptions.CreateEthscriptionParams memory params = createTokenParams(
+            nullMintTx,
+            address(0),
+            mintContent,
+            "erc-20",
+            "mint",
+            abi.encode(mintOp)
+        );
+
+        vm.prank(alice);
+        uint256 tokenId = ethscriptions.createEthscription(params);
+
+        // The NFT should exist and end up owned by the null address
+        assertEq(ethscriptions.ownerOf(tokenId), address(0));
+
+        // ERC20 should be minted and credited to the null address
+        address tokenAddr = tokenManager.getTokenAddressByTick("TEST");
+        EthscriptionsERC20 token = EthscriptionsERC20(tokenAddr);
+        assertEq(token.totalSupply(), 1000 ether);
+        assertEq(token.balanceOf(address(0)), 1000 ether);
+
+        // TokenManager should record a token item and increase total minted
+        assertTrue(tokenManager.isTokenItem(nullMintTx));
+        TokenManager.TokenInfo memory info = tokenManager.getTokenInfo(DEPLOY_TX_HASH);
+        assertEq(info.totalMinted, 1000);
+    }
+
+    function testTransferTokenItemToNullAddressMovesERC20ToZero() public {
+        // Setup: deploy and mint a token item to Bob
+        testTokenMint();
+
+        address tokenAddr = tokenManager.getTokenAddressByTick("TEST");
+        EthscriptionsERC20 token = EthscriptionsERC20(tokenAddr);
+
+        // Sanity: Bob has the ERC20 minted via the token item
+        assertEq(token.balanceOf(bob), 1000 ether);
+        assertEq(token.balanceOf(address(0)), 0);
+        assertEq(token.totalSupply(), 1000 ether);
+
+        // Transfer the NFT representing the token item to the null address
+        Ethscriptions.Ethscription memory mintEthscription = ethscriptions.getEthscription(MINT_TX_HASH_1);
+        vm.prank(bob);
+        ethscriptions.transferEthscription(address(0), MINT_TX_HASH_1);
+
+        // The NFT should now be owned by the null address
+        assertEq(ethscriptions.ownerOf(mintEthscription.ethscriptionNumber), address(0));
+
+        // ERC20 transfer follows NFT to null owner
+        assertEq(token.balanceOf(bob), 0);
+        assertEq(token.balanceOf(address(0)), 1000 ether);
+        assertEq(token.totalSupply(), 1000 ether);
     }
 }
