@@ -444,7 +444,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
       mint_ethscription_ids = []
 
       # Mint up to limit
-      3.times do |i|
+      [1, 2, 3].each do |i|
         mint_data = {
           "p" => "erc-20",
           "op" => "mint",
@@ -481,7 +481,7 @@ RSpec.describe "Tokens Protocol", type: :integration do
         "p" => "erc-20",
         "op" => "mint",
         "tick" => tick,
-        "id" => "3",
+        "id" => "4",
         "amt" => "100"
       }
 
