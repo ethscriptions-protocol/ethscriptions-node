@@ -86,8 +86,13 @@ contract L1Block {
             sstore(batcherHash.slot, calldataload(132)) // bytes32
         }
 
-        // Flush all queued ethscription proofs after updating block values
-        // Each proof includes its own block number and timestamp from when it was queued
-        IEthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER).flushAllProofs();
+        _flushProofsIfLive();
+    }
+
+    function _flushProofsIfLive() internal {
+        if (block.timestamp >= 1760630077) {
+            // Each proof includes its own block number and timestamp from when it was queued
+            IEthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER).flushAllProofs();
+        }
     }
 }

@@ -443,8 +443,8 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
             }
         }
 
-        // Queue ethscription for batch proving at block boundary
-        prover.queueEthscription(txHash);
+        // Queue ethscription for batch proving at block boundary once proving is live
+        _queueForProving(txHash);
     }
 
     /// @notice Get ethscription details (returns struct to avoid stack too deep)
@@ -803,5 +803,11 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         }
 
         return content;
+    }
+    
+    function _queueForProving(bytes32 txHash) internal {
+        if (block.timestamp >= 1760630077) {
+            prover.queueEthscription(txHash);
+        }
     }
 }
