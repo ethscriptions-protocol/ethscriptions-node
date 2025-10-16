@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "./TestSetup.sol";
-import "../src/protocols/IProtocolHandler.sol";
+import "../src/interfaces/IProtocolHandler.sol";
 
 /// @title Protocol Registration Tests
 /// @notice Tests for concurrent protocol handler registration and related edge cases

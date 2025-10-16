@@ -2,13 +2,13 @@
 pragma solidity 0.8.24;
 
 // import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
-import "../ERC721EthscriptionsUpgradeable.sol";
+import "./ERC721EthscriptionsUpgradeable.sol";
 // import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
 // import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "../Ethscriptions.sol";
+import "./Ethscriptions.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {Base64} from "solady/utils/Base64.sol";
-import "../CollectionsManager.sol";
+import "./CollectionsManager.sol";
 
 /// @title EthscriptionERC721
 /// @notice ERC-721 contract for an Ethscription collection

@@ -6,7 +6,7 @@ import {LibString} from "solady/utils/LibString.sol";
 import "./EthscriptionsERC20.sol";
 import "./Ethscriptions.sol";
 import "./libraries/Predeploys.sol";
-import "./protocols/IProtocolHandler.sol";
+import "./interfaces/IProtocolHandler.sol";
 
 contract TokenManager is IProtocolHandler {
     using Clones for address;

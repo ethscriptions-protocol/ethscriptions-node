@@ -8,7 +8,7 @@ import {LibString} from "solady/utils/LibString.sol";
 import "./EthscriptionsProver.sol";
 import "./libraries/Predeploys.sol";
 import "./L2/L1Block.sol";
-import "./protocols/IProtocolHandler.sol";
+import "./interfaces/IProtocolHandler.sol";
 
 /// @title Ethscriptions ERC-721 Contract
 /// @notice Mints Ethscriptions as ERC-721 tokens based on L1 transaction data

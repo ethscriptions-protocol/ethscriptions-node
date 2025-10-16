@@ -3,10 +3,10 @@ pragma solidity 0.8.24;
 
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import {LibString} from "solady/utils/LibString.sol";
-import "./protocols/EthscriptionERC721.sol";
+import "./EthscriptionERC721.sol";
 import "./Ethscriptions.sol";
 import "./libraries/Predeploys.sol";
-import "./protocols/IProtocolHandler.sol";
+import "./interfaces/IProtocolHandler.sol";
 
 contract CollectionsManager is IProtocolHandler {
     using Clones for address;
