@@ -28,7 +28,7 @@ contract EthscriptionsERC20 is ERC20NullOwnerCappedUpgradeable {
 
     // TokenManager-only mint that allows to == address(0)
     function mint(address to, uint256 amount) external onlyTokenManager {
-        _update(address(0), to, amount);
+        _mint(to, amount);
     }
 
     // TokenManager-only transfer that allows to/from == address(0)

@@ -22,7 +22,7 @@ abstract contract ERC20NullOwnerCappedUpgradeable is Initializable, ContextUpgra
 
     // Unique storage slot for this combined ERC20 + Cap storage
     // keccak256(abi.encode(uint256(keccak256("ethscriptions.storage.ERC20NullOwnerCapped")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant STORAGE_LOCATION = 0x8f4f7bb0f9a741a04db8c5a3930ef1872dc1b0c6f996f78adc3f57e5f8b78400;
+    bytes32 private constant STORAGE_LOCATION = 0x4d6f413771b260e6694ffc0cfc1fc0bdb079c880580315446b9e26b778417b00;
 
     function _getS() private pure returns (TokenStorage storage $) {
         assembly {
@@ -116,42 +116,38 @@ abstract contract ERC20NullOwnerCappedUpgradeable is Initializable, ContextUpgra
         _update(from, to, value);
     }
 
-    // Modified from OZ: do NOT burn on to == address(0); always credit recipient (including zero address).
+    // Update balances without affecting total supply (supports from/to == address(0))
     function _update(address from, address to, uint256 value) internal virtual {
         TokenStorage storage $ = _getS();
-        if (from == address(0)) {
-            // Mint path
-            $.totalSupply += value;
-        } else {
-            uint256 fromBalance = $.balances[from];
-            if (fromBalance < value) {
-                revert ERC20InsufficientBalance(from, fromBalance, value);
-            }
-            unchecked {
-                $.balances[from] = fromBalance - value;
-            }
+        // Debit from
+        uint256 fromBalance = $.balances[from];
+        if (fromBalance < value) {
+            revert ERC20InsufficientBalance(from, fromBalance, value);
         }
-
-        // No burning: credit even address(0)
+        unchecked {
+            $.balances[from] = fromBalance - value;
+        }
+        // Credit to
         unchecked {
             $.balances[to] += value;
         }
-
         emit Transfer(from, to, value);
-
-        // Cap enforcement when minting
-        if (from == address(0)) {
-            uint256 maxSupply = $.cap;
-            uint256 supply = $.totalSupply;
-            if (supply > maxSupply) {
-                revert ERC20ExceededCap(supply, maxSupply);
-            }
-        }
     }
 
-    // Mint (null-owner aware)
+    // Mint (null-owner aware): increases totalSupply and credits recipient (can be address(0))
     function _mint(address account, uint256 value) internal {
-        _update(address(0), account, value);
+        TokenStorage storage $ = _getS();
+        
+        uint256 newSupply = $.totalSupply + value;
+        if (newSupply > $.cap) {
+            revert ERC20ExceededCap(newSupply, $.cap);
+        }
+        
+        $.totalSupply = newSupply;
+        
+        unchecked { $.balances[account] += value; }
+        
+        emit Transfer(address(0), account, value);
     }
 
     // Approvals
