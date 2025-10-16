@@ -60,7 +60,7 @@ class GapDetectionJob < ApplicationJob
       return nil if latest_l2_block_number == 0
 
       # Get L1 attributes to find the corresponding L1 block
-      l1_attributes = GethDriver.client.get_l1_attributes(latest_l2_block_number)
+      l1_attributes = GethDriver.get_l1_attributes(latest_l2_block_number)
       current_l1_block = l1_attributes[:number]
 
       # Check the last validated block
@@ -92,7 +92,7 @@ class GapDetectionJob < ApplicationJob
       # Search backwards from current L2 tip to find blocks from this L1 block
       # This is expensive but necessary for gap filling
       (0..latest_l2_block_number).reverse_each do |l2_block_num|
-        l1_attributes = GethDriver.client.get_l1_attributes(l2_block_num)
+        l1_attributes = GethDriver.get_l1_attributes(l2_block_num)
 
         if l1_attributes[:number] == l1_block_number
           l2_block = GethDriver.client.call("eth_getBlockByNumber", ["0x#{l2_block_num.to_s(16)}", false])
