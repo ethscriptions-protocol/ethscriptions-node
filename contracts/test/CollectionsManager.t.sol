@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./TestSetup.sol";
 import "../src/CollectionsManager.sol";
-import "../src/protocols/EthscriptionERC721.sol";
+import "../src/EthscriptionERC721.sol";
 import {LibString} from "solady/utils/LibString.sol";
 
 contract CollectionsManagerTest is TestSetup {
