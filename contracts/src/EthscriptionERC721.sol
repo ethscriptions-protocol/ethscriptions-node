@@ -94,7 +94,7 @@ contract EthscriptionERC721 is ERC721EthscriptionsUpgradeable {
     /// @notice Sync ownership for a specific token
     /// @param tokenId The token to sync
     /// @param ethscriptionId The ethscription ID for this token
-    function syncOwnership(uint256 tokenId, bytes32 ethscriptionId) external {
+    function syncOwnership(uint256 tokenId, bytes32 ethscriptionId) external onlyFactory {
         // Check if token still exists in collection
         require(_tokenExists(tokenId), "Token does not exist");
 
@@ -110,29 +110,7 @@ contract EthscriptionERC721 is ERC721EthscriptionsUpgradeable {
             _transfer(recordedOwner, actualOwner, tokenId);
         }
     }
-
-    /// @notice Batch sync ownership for multiple tokens
-    /// @param tokenIds Array of token IDs to sync
-    /// @param ethscriptionIds Array of corresponding ethscription IDs
-    function syncOwnershipBatch(uint256[] calldata tokenIds, bytes32[] calldata ethscriptionIds) external {
-        require(tokenIds.length == ethscriptionIds.length, "Array length mismatch");
-
-        for (uint256 i = 0; i < tokenIds.length; i++) {
-            uint256 tokenId = tokenIds[i];
-            bytes32 ethscriptionId = ethscriptionIds[i];
-
-            // Skip non-existent tokens
-            if (!_tokenExists(tokenId)) continue;
-
-            address actualOwner = ethscriptions.ownerOf(ethscriptionId);
-            address recordedOwner = _ownerOf(tokenId);
-
-            if (actualOwner != recordedOwner) {
-                _transfer(recordedOwner, actualOwner, tokenId);
-            }
-        }
-    }
-
+    
     /// @notice Lock the collection (freeze it)
     function lockCollection() external onlyFactory {
         locked = true;

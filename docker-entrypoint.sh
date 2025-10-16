@@ -32,8 +32,18 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 # Wait for either process to exit and preserve its exit code
+set +e
 wait -n
 exit_code=$?
+set -e
 echo "One process exited, shutting down..."
 kill "${JOBS_PID:-}" "${CLOCKWORK_PID:-}" 2>/dev/null || true
+if [[ "${DEBUG_KEEP_ALIVE:-0}" == "1" && $exit_code -ne 0 ]]; then
+    echo "Process died with $exit_code; keeping container up for debugging."
+    if [[ -t 1 ]]; then
+        exec bash -li
+    else
+        exec tail -f /dev/null
+    fi
+fi
 exit "$exit_code"
