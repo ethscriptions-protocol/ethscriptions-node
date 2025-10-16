@@ -16,19 +16,22 @@ module GethTestHelper
       File.delete(log_file_location)
     end
     
-    genesis_path = GenesisGenerator.new.run!
-    
+    quiet = ENV['RSPEC_QUIET_GETH'] == 'true'
+    genesis_path = GenesisGenerator.new(quiet: quiet).run!
+
     file = Tempfile.new
     file.write(ENV.fetch('JWT_SECRET'))
     file.close
     
-    cmd = "cd #{geth_dir} && make geth && ./build/bin/geth init --cache.preimages --state.scheme=hash --datadir #{@temp_datadir} #{genesis_path}"
-    
-    puts "Running: #{cmd}"
-    
-    # Initialize geth with the generated genesis file
-    system(cmd)
-    
+    cmd = "make geth && ./build/bin/geth init --cache.preimages --state.scheme=hash --datadir #{@temp_datadir} #{genesis_path}"
+    stdout, stderr, status = Open3.capture3(cmd, chdir: geth_dir)
+    unless status.success?
+      message = stderr.empty? ? stdout : stderr
+      raise "Geth init failed: #{message}"
+    end
+
+    puts "✅ Geth init completed"
+
     geth_command = [
       "#{geth_dir}/build/bin/geth",
       "--datadir", @temp_datadir,
@@ -46,14 +49,14 @@ module GethTestHelper
       "--maxpeers", "0",
       "--log.file", log_file_location,
       "--syncmode", "full",
-      "--gcmode", "archive",
-      "--history.state", "0",
-      "--history.transactions", "0",
-      "--nocompaction",
+      "--gcmode", "full",
+      "--history.state", "100000",
+      "--history.transactions", "100000",
+      # "--nocompaction",
       "--rollup.enabletxpooladmission=false",
       "--rollup.disabletxpoolgossip",
       "--cache", "12000",
-      "--cache.preimages",
+      # "--cache.preimages",
       "--override.canyon", "0"  # Enable canyon from genesis
     ]
     

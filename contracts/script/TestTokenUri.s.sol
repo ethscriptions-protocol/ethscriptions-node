@@ -12,7 +12,7 @@ contract TestTokenUri is Script {
         L2Genesis genesis = new L2Genesis();
         genesis.runWithoutDump();
 
-        Ethscriptions eth = Ethscriptions(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
+        Ethscriptions eth = Ethscriptions(Predeploys.ETHSCRIPTIONS);
 
         // Test case 1: Plain text (should use viewer)
         vm.prank(address(0x1111));

@@ -111,9 +111,6 @@ class BlockValidator
 
     # Extract all transaction hashes from the ethscriptions array
     genesis_data['ethscriptions'].map { |e| e['transaction_hash'] }
-  rescue => e
-    Rails.logger.warn "Failed to load genesis ethscriptions: #{e.message}"
-    []
   end
 
   def fetch_expected_data(l1_block_number)

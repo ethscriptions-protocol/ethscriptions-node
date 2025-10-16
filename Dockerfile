@@ -64,7 +64,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Set up non-root user
 RUN useradd rails --create-home --shell /bin/bash && \
-    chown -R rails:rails log tmp storage
+    chown -R rails:rails log tmp storage db config
 USER rails:rails
 
 # Database initialization moved to runtime in entrypoint script

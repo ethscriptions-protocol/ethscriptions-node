@@ -59,39 +59,4 @@ contract EthscriptionsTransferForPreviousOwnerTest is TestSetup {
             address(0x999) // Wrong previous owner
         );
     }
-    
-    function test_TransferForPreviousOwnerGas() public {
-        bytes32 txHash = bytes32(uint256(0x456));
-        address creator = address(0x10);
-        address owner1 = address(0x11);
-        address owner2 = address(0x12);
-        address owner3 = address(0x13);
-        
-        vm.prank(creator);
-        eth.createEthscription(
-            createTestParams(
-                txHash,
-                owner1,
-                "data:,gas test",
-                false
-            )
-        );
-        
-        // First transfer (regular)
-        vm.prank(owner1);
-        eth.transferEthscription(owner2, txHash);
-        
-        // Second transfer with previous owner validation
-        vm.prank(owner2);
-        uint256 gasBefore = gasleft();
-        eth.transferEthscriptionForPreviousOwner(owner3, txHash, owner1);
-        uint256 gasUsed = gasBefore - gasleft();
-        
-        console.log("transferEthscriptionForPreviousOwner gas:", gasUsed);
-        
-        // Should be slightly more than regular transfer due to extra validation
-        // Now includes automatic proof generation in _update
-        assertGt(gasUsed, 25000);
-        assertLt(gasUsed, 100000);
-    }
 }

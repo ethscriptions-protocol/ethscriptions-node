@@ -17,7 +17,7 @@ services:
     volumes:
       - geth-data:/root/ethereum
     ports:
-      - "8545:8545"
+      - "${GETH_EXTERNAL_PORT:-8545}:8545"
     healthcheck:
       test: ["CMD-SHELL", "geth attach --exec 'eth.blockNumber' http://localhost:8545"]
       interval: 30s
@@ -30,8 +30,8 @@ services:
     environment:
       JWT_SECRET: ${JWT_SECRET}
       L1_NETWORK: ${L1_NETWORK}
-      GETH_RPC_URL: http://geth:8551
-      NON_AUTH_GETH_RPC_URL: http://geth:8545
+      GETH_RPC_URL: ipc:///geth-data/geth.ipc
+      NON_AUTH_GETH_RPC_URL: ipc:///geth-data/geth.ipc
       L1_RPC_URL: ${L1_RPC_URL}
       L1_GENESIS_BLOCK: ${L1_GENESIS_BLOCK}
       L1_PREFETCH_FORWARD: ${L1_PREFETCH_FORWARD:-200}
@@ -48,12 +48,17 @@ services:
       # Validation lag control
       VALIDATION_LAG_HARD_LIMIT: ${VALIDATION_LAG_HARD_LIMIT:-30}
       ETHSCRIPTIONS_API_KEY: ${ETHSCRIPTIONS_API_KEY:-}
+      RAILS_MAX_THREADS: ${RAILS_MAX_THREADS:-}
+      DEBUG_KEEP_ALIVE: ${DEBUG_KEEP_ALIVE:-0}
     volumes:
       - node-storage:/rails/storage
+      - geth-data:/geth-data
     depends_on:
       geth:
         condition: service_healthy
 
 volumes:
   geth-data:
+    name: ${COMPOSE_PROJECT_NAME:-ethscriptions-evm}_geth-data
   node-storage:
+    name: ${COMPOSE_PROJECT_NAME:-ethscriptions-evm}_node-storage

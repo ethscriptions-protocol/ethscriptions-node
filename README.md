@@ -63,7 +63,7 @@ L1 RPC  ─▶│ EthRpcClient│──blocks▶│ EthBlockImporter │──de
 - **ERC721EthscriptionsUpgradeable.sol**: Minimal ERC-721 core that supports address(0) ownership, removes approvals, and exposes `_update` for better control.
 - **TokenManager.sol**: Receives callbacks (`handleTokenOperation`, `handleTokenTransfer`) for token protocols. Logic still needs Ruby-side parameter parsing.
 - **EthscriptionsProver.sol**: Emits proofs for downstream verification.
-- **Predeploy Addresses**: Located in `contracts/genesis-allocs.json` (Ethscriptions contract at `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`).
+- **Predeploy Addresses**: Located in `contracts/genesis-allocs.json` (Ethscriptions contract at `0x3300000000000000000000000000000000000001`).
 
 ### 3.2 Identity & Storage
 

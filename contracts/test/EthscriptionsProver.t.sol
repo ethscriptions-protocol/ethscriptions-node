@@ -16,6 +16,8 @@ contract EthscriptionsProverTest is TestSetup {
     function setUp() public override {
         super.setUp();
 
+        vm.warp(1760630077);
+
         // Create a test ethscription with alice as creator
         vm.startPrank(alice);
         ethscriptions.createEthscription(createTestParams(
@@ -28,6 +30,8 @@ contract EthscriptionsProverTest is TestSetup {
     }
     
     function testProveEthscriptionDataViaBatchFlush() public {
+        vm.warp(1760630078);
+
         // The ethscription creation in setUp should have queued it for proving
         // Let's transfer it to verify the proof includes previous owner
         uint256 tokenId = ethscriptions.getTokenId(TEST_TX_HASH);
@@ -83,6 +87,8 @@ contract EthscriptionsProverTest is TestSetup {
         vm.startPrank(Predeploys.L1_BLOCK_ATTRIBUTES);
         prover.flushAllProofs();
         vm.stopPrank();
+
+        vm.warp(1760630078);
 
         // Now move to next block for our test
         vm.roll(block.number + 1);
@@ -166,5 +172,41 @@ contract EthscriptionsProverTest is TestSetup {
             }
         }
         assertEq(proofsSent, 3, "Should have sent 3 individual proofs");
+    }
+
+    function testNoProofsBeforeProvingStart() public {
+        // Clear any queued proofs from setup
+        vm.startPrank(Predeploys.L1_BLOCK_ATTRIBUTES);
+        prover.flushAllProofs();
+        vm.stopPrank();
+
+        vm.warp(1760630076);
+
+        bytes32 earlyTxHash = bytes32(uint256(0xBEEF));
+
+        vm.startPrank(alice);
+        ethscriptions.createEthscription(createTestParams(
+            earlyTxHash,
+            alice,
+            "data:,early",
+            false
+        ));
+        vm.stopPrank();
+
+        vm.roll(block.number + 1);
+
+        vm.startPrank(Predeploys.L1_BLOCK_ATTRIBUTES);
+        vm.recordLogs();
+        prover.flushAllProofs();
+        vm.stopPrank();
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 proofsSent;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == keccak256("EthscriptionDataProofSent(bytes32,uint256,uint256)")) {
+                proofsSent++;
+            }
+        }
+        assertEq(proofsSent, 0, "Should not send proofs before proving start");
     }
 }

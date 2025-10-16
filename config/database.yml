@@ -1,6 +1,6 @@
 default: &default
   adapter: sqlite3
-  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { ENV.fetch("JOB_THREADS", 3).to_i + 2 }.to_i %>
   timeout: 5000
 
 development:
