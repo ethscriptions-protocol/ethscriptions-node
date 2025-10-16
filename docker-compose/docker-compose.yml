@@ -48,7 +48,6 @@ services:
       # Validation lag control
       VALIDATION_LAG_HARD_LIMIT: ${VALIDATION_LAG_HARD_LIMIT:-30}
       ETHSCRIPTIONS_API_KEY: ${ETHSCRIPTIONS_API_KEY:-}
-      RAILS_MAX_THREADS: ${RAILS_MAX_THREADS:-}
       DEBUG_KEEP_ALIVE: ${DEBUG_KEEP_ALIVE:-0}
     volumes:
       - node-storage:/rails/storage
