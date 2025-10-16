@@ -74,7 +74,7 @@ class EthBlockImporter
       current_block = EthscriptionsBlock.from_rpc_result(block_data)
 
       ImportProfiler.start("l1_attributes_fetch")
-      l1_attributes = GethDriver.client.get_l1_attributes(current_block.number)
+      l1_attributes = GethDriver.get_l1_attributes(current_block.number)
       ImportProfiler.stop("l1_attributes_fetch")
       current_block.assign_l1_attributes(l1_attributes)
       
@@ -107,7 +107,7 @@ class EthBlockImporter
   # Removed batch processing - now imports one block at a time
   
   def find_first_l2_block_in_epoch(l2_block_number_candidate)
-    l1_attributes = GethDriver.client.get_l1_attributes(l2_block_number_candidate)
+    l1_attributes = GethDriver.get_l1_attributes(l2_block_number_candidate)
     
     if l1_attributes[:sequence_number] == 0
       return l2_block_number_candidate
@@ -124,7 +124,7 @@ class EthBlockImporter
       l1_block = EthRpcClient.l1.get_block(SysConfig.l1_genesis_block_number)
       eth_block = EthBlock.from_rpc_result(l1_block)
       ethscriptions_block = EthscriptionsBlock.from_rpc_result(latest_l2_block)
-      l1_attributes = GethDriver.client.get_l1_attributes(latest_l2_block_number)
+      l1_attributes = GethDriver.get_l1_attributes(latest_l2_block_number)
       
       ethscriptions_block.assign_l1_attributes(l1_attributes)
       
@@ -134,7 +134,7 @@ class EthBlockImporter
       return [eth_block.number, 0]
     end
     
-    l1_attributes = GethDriver.client.get_l1_attributes(latest_l2_block_number)
+    l1_attributes = GethDriver.get_l1_attributes(latest_l2_block_number)
     
     l1_candidate = l1_attributes[:number]
     l2_candidate = latest_l2_block_number
@@ -148,7 +148,7 @@ class EthBlockImporter
       l1_result = ethereum_client.get_block(l1_candidate)
       l1_hash = Hash32.from_hex(l1_result['hash'])
       
-      l1_attributes = GethDriver.client.get_l1_attributes(l2_candidate)
+      l1_attributes = GethDriver.get_l1_attributes(l2_candidate)
       
       l2_block = GethDriver.client.call("eth_getBlockByNumber", ["0x#{l2_candidate.to_s(16)}", false])
       

@@ -1,14 +1,41 @@
 module GethDriver
   extend self
   attr_reader :password
-  
+  include Memery
+
   def client
-    @_client ||= GethClient.new(ENV.fetch('GETH_RPC_URL'))
+    @_client ||= EthRpcClient.l2_engine
   end
-  
+
   def non_auth_client
-    @_non_auth_client ||= GethClient.new(non_authed_rpc_url)
+    @_non_auth_client ||= EthRpcClient.l2
   end
+
+  def get_l1_attributes(l2_block_number)
+    if l2_block_number > 0
+      l2_block = EthRpcClient.l2.call("eth_getBlockByNumber", ["0x#{l2_block_number.to_s(16)}", true])
+      l2_attributes_tx = l2_block['transactions'].first
+      L1AttributesTxCalldata.decode(
+        ByteString.from_hex(l2_attributes_tx['input']),
+        l2_block_number
+      )
+    else
+      l1_block = EthRpcClient.l1.get_block(SysConfig.l1_genesis_block_number)
+      eth_block = EthBlock.from_rpc_result(l1_block)
+      {
+        timestamp: eth_block.timestamp,
+        number: eth_block.number,
+        base_fee: eth_block.base_fee_per_gas,
+        blob_base_fee: 1,
+        hash: eth_block.block_hash,
+        batcher_hash: Hash32.from_bin("\x00".b * 32),
+        sequence_number: 0,
+        base_fee_scalar: 0,
+        blob_base_fee_scalar: 1
+      }.with_indifferent_access
+    end
+  end
+  memoize :get_l1_attributes
   
   def non_authed_rpc_url
     ENV.fetch('NON_AUTH_GETH_RPC_URL')
