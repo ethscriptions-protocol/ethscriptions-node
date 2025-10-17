@@ -50,7 +50,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "json",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "create_collection",
                 data: abi.encode(metadata)
             })
@@ -132,7 +132,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "json",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "add_items_batch",
                 data: abi.encode(addOp)
             })
@@ -228,7 +228,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "json",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "remove_items",
                 data: abi.encode(removeOp)
             })
@@ -271,7 +271,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "remove_items",
                 data: abi.encode(removeOp)
             })
@@ -335,7 +335,7 @@ contract CollectionsManagerTest is TestSetup {
                 mimeSubtype: "plain",
                 esip6: false,
                 protocolParams: Ethscriptions.ProtocolParams({
-                    protocol: "collections",
+                    protocolName: "collections",
                     operation: "add_items_batch",
                     data: abi.encode(addOp)
                 })
@@ -412,7 +412,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "png",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "add_items_batch",
                 data: abi.encode(addOp)
             })
@@ -483,7 +483,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "edit_collection_item",
                 data: abi.encode(editOp)
             })
@@ -522,7 +522,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "",
+                protocolName: "",
                 operation: "",
                 data: ""
             })
@@ -560,7 +560,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "add_items_batch",
                 data: abi.encode(addOp)
             })
@@ -591,7 +591,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "edit_collection_item",
                 data: abi.encode(editOp)
             })
@@ -636,7 +636,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "edit_collection_item",
                 data: abi.encode(editOp)
             })
@@ -676,7 +676,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "edit_collection_item",
                 data: abi.encode(editOp)
             })
@@ -727,7 +727,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "sync_ownership",
                 data: abi.encode(COLLECTION_TX_HASH, ethscriptionIds)
             })
@@ -776,7 +776,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "sync_ownership",
                 data: abi.encode(COLLECTION_TX_HASH, ethscriptionIds)
             })
@@ -808,7 +808,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "sync_ownership",
                 data: abi.encode(COLLECTION_TX_HASH, ethscriptionIds)
             })
@@ -836,7 +836,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "sync_ownership",
                 data: abi.encode(fakeCollectionId, ethscriptionIds)
             })
@@ -866,7 +866,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "lock_collection",
                 data: abi.encode(COLLECTION_TX_HASH)
             })
@@ -897,7 +897,7 @@ contract CollectionsManagerTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "edit_collection_item",
                 data: abi.encode(editOp)
             })

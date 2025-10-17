@@ -102,7 +102,7 @@ contract EthscriptionsMultiTransferTest is TestSetup {
 
         // Alice tries to transfer them (but owns none)
         vm.prank(alice);
-        vm.expectRevert("No successful transfers");
+        vm.expectRevert(Ethscriptions.NoSuccessfulTransfers.selector);
         ethscriptions.transferMultipleEthscriptions(hashes, charlie);
     }
 
@@ -121,7 +121,7 @@ contract EthscriptionsMultiTransferTest is TestSetup {
 
         // Verify all are owned by address(0) (null ownership, not burned)
         for (uint256 i = 0; i < 3; i++) {
-            assertEq(ethscriptions.currentOwner(hashes[i]), address(0), "Should be owned by null address");
+            assertEq(ethscriptions.ownerOf(hashes[i]), address(0), "Should be owned by null address");
         }
     }
 
@@ -226,7 +226,8 @@ contract EthscriptionsMultiTransferTest is TestSetup {
         string memory json = string(decodedJson);
 
         // Check all expected attributes
-        string[11] memory expectedTraits = [
+        string[12] memory expectedTraits = [
+            "Transaction Hash",
             "Ethscription Number",
             "Creator",
             "Initial Owner",

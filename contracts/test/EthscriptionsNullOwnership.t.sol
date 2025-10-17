@@ -22,15 +22,16 @@ contract EthscriptionsNullOwnershipTest is TestSetup {
         );
 
         // Expect only one EthscriptionCreated event (no EthscriptionTransferred since from == address(0))
+        bytes32 contentUriHash = sha256(bytes("data:text/plain,Null owned")); // Full data URI hash
         bytes32 contentSha = sha256(bytes("Null owned")); // Raw content, not data URI
         vm.expectEmit(true, true, true, true);
         emit Ethscriptions.EthscriptionCreated(
             txHash,
             alice, // creator
             address(0), // initialOwner
+            contentUriHash,
             contentSha,
-            11, // ethscription number (after 10 genesis)
-            1 // pointerCount (content stored once)
+            11 // ethscription number (after 10 genesis)
         );
 
         // Should NOT emit EthscriptionTransferred for mint
@@ -41,7 +42,7 @@ contract EthscriptionsNullOwnershipTest is TestSetup {
 
         // Verify ownership
         assertEq(ethscriptions.ownerOf(tokenId), address(0), "Should be owned by null address");
-        assertEq(ethscriptions.currentOwner(txHash), address(0), "currentOwner should return null address");
+        assertEq(ethscriptions.ownerOf(txHash), address(0), "ownerOf should return null address");
 
         // Verify ethscription data
         Ethscriptions.Ethscription memory etsc = ethscriptions.getEthscription(txHash);
@@ -82,7 +83,7 @@ contract EthscriptionsNullOwnershipTest is TestSetup {
 
         // Verify ownership changed
         assertEq(ethscriptions.ownerOf(tokenId), address(0), "Should be owned by null address");
-        assertEq(ethscriptions.currentOwner(txHash), address(0), "currentOwner should return null address");
+        assertEq(ethscriptions.ownerOf(txHash), address(0), "ownerOf should return null address");
 
         // Verify previousOwner updated
         Ethscriptions.Ethscription memory etsc = ethscriptions.getEthscription(txHash);

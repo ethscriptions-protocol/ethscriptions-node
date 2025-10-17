@@ -24,7 +24,7 @@ contract EthscriptionsWithContentTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "",
+                protocolName: "",
                 operation: "",
                 data: ""
             })
@@ -106,7 +106,7 @@ contract EthscriptionsWithContentTest is TestSetup {
             mimeSubtype: "octet-stream",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "",
+                protocolName: "",
                 operation: "",
                 data: ""
             })

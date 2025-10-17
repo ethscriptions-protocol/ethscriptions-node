@@ -158,7 +158,7 @@ abstract contract TestSetup is Test {
             mimeSubtype: mimeSubtype,
             esip6: esip6,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "",
+                protocolName: "",
                 operation: "",
                 data: ""
             })

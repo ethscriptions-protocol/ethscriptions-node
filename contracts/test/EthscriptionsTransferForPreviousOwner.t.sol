@@ -46,13 +46,13 @@ contract EthscriptionsTransferForPreviousOwnerTest is TestSetup {
         );
         
         // Verify ownership and previous owner updated
-        assertEq(eth.currentOwner(txHash), thirdOwner);
+        assertEq(eth.ownerOf(txHash), thirdOwner);
         etsc = eth.getEthscription(txHash);
         assertEq(etsc.previousOwner, newOwner);
         
         // Test that wrong previous owner fails
         vm.prank(thirdOwner);
-        vm.expectRevert("Previous owner mismatch");
+        vm.expectRevert(Ethscriptions.PreviousOwnerMismatch.selector);
         eth.transferEthscriptionForPreviousOwner(
             address(0x5),
             txHash,

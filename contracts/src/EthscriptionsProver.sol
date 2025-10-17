@@ -106,7 +106,7 @@ contract EthscriptionsProver {
     function _createAndSendProof(bytes32 ethscriptionTxHash, QueuedProof memory proofInfo) internal {
         // Get ethscription data including previous owner
         Ethscriptions.Ethscription memory etsc = ethscriptions.getEthscription(ethscriptionTxHash);
-        address currentOwner = ethscriptions.currentOwner(ethscriptionTxHash);
+        address currentOwner = ethscriptions.ownerOf(ethscriptionTxHash);
 
         // Create proof struct with all ethscription data
         EthscriptionDataProof memory proof = EthscriptionDataProof({

@@ -55,7 +55,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: protocol,
+                protocolName: protocol,
                 operation: operation,
                 data: data
             })

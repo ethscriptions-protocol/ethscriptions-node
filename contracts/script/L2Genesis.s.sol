@@ -32,15 +32,15 @@ contract GenesisEthscriptions is Ethscriptions {
         require(ethscriptions[params.transactionHash].creator == address(0), "Ethscription already exists");
 
         // Check protocol uniqueness using content URI hash
-        if (contentUriExists[params.contentUriHash]) {
+        if (firstEthscriptionByContentUri[params.contentUriHash] != bytes32(0)) {
             if (!params.esip6) revert DuplicateContentUri();
         }
 
         // Store content and get content SHA (reusing parent's helper)
         bytes32 contentSha = _storeContent(params.content);
 
-        // Mark content URI as used
-        contentUriExists[params.contentUriHash] = true;
+        // Mark content URI as used by storing this ethscription's tx hash
+        firstEthscriptionByContentUri[params.contentUriHash] = params.transactionHash;
 
         // Set all values including genesis-specific ones
         ethscriptions[params.transactionHash] = Ethscription({
@@ -341,7 +341,7 @@ contract L2Genesis is Script {
         params.mimeSubtype = vm.parseJsonString(json, string.concat(basePath, ".mime_subtype"));
         params.esip6 = vm.parseJsonBool(json, string.concat(basePath, ".esip6"));
         params.protocolParams = Ethscriptions.ProtocolParams({
-            protocol: "",
+            protocolName: "",
             operation: "",
             data: ""
         });
