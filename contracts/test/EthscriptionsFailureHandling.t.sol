@@ -108,7 +108,7 @@ contract EthscriptionsFailureHandlingTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "test",
+                protocolName: "test",
                 operation: "deploy",
                 data: abi.encode("TEST", uint256(1000000), uint256(100))
             })
@@ -192,7 +192,7 @@ contract EthscriptionsFailureHandlingTest is TestSetup {
             mimeSubtype: "json",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "test",
+                protocolName: "test",
                 operation: "deploy",
                 data: abi.encode("FAIL", uint256(1000), uint256(10))
             })

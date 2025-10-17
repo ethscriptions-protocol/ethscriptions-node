@@ -34,7 +34,7 @@ contract ProtocolRegistrationTest is TestSetup {
         assertEq(ethscriptions.protocolHandlers("test-protocol"), address(mockHandler1));
 
         // Try to register the same protocol again (should revert)
-        vm.expectRevert(bytes("Protocol already registered"));
+        vm.expectRevert(Ethscriptions.ProtocolAlreadyRegistered.selector);
         vm.prank(Predeploys.DEPOSITOR_ACCOUNT);
         ethscriptions.registerProtocol("test-protocol", address(mockHandler2));
 
@@ -50,7 +50,7 @@ contract ProtocolRegistrationTest is TestSetup {
         ethscriptions.registerProtocol("concurrent-test", address(mockHandler1));
 
         // Second registration with different handler fails
-        vm.expectRevert(bytes("Protocol already registered"));
+        vm.expectRevert(Ethscriptions.ProtocolAlreadyRegistered.selector);
         vm.prank(Predeploys.DEPOSITOR_ACCOUNT);
         ethscriptions.registerProtocol("concurrent-test", address(mockHandler2));
 
@@ -78,7 +78,7 @@ contract ProtocolRegistrationTest is TestSetup {
     /// @notice Test that protocol registration is restricted to authorized accounts
     function testUnauthorizedCannotRegisterProtocol() public {
         // Try to register from unauthorized account (should revert)
-        vm.expectRevert(bytes("Only depositor can register protocols"));
+        vm.expectRevert(Ethscriptions.OnlyDepositor.selector);
         vm.prank(alice);
         ethscriptions.registerProtocol("unauthorized", address(mockHandler1));
 
@@ -88,7 +88,7 @@ contract ProtocolRegistrationTest is TestSetup {
 
     /// @notice Test registration with zero address handler
     function testCannotRegisterZeroAddressHandler() public {
-        vm.expectRevert(bytes("Invalid handler address"));
+        vm.expectRevert(Ethscriptions.InvalidHandler.selector);
         vm.prank(Predeploys.DEPOSITOR_ACCOUNT);
         ethscriptions.registerProtocol("zero-handler", address(0));
     }
@@ -121,7 +121,7 @@ contract ProtocolRegistrationTest is TestSetup {
             mimeSubtype: "json",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "mock-protocol",
+                protocolName: "mock-protocol",
                 operation: "test",
                 data: abi.encode(uint256(42))
             })
@@ -167,7 +167,7 @@ contract ProtocolRegistrationTest is TestSetup {
             mimeSubtype: "json",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "unregistered",
+                protocolName: "unregistered",
                 operation: "test",
                 data: ""
             })

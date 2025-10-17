@@ -3,7 +3,7 @@ require 'eth'
 class EventDecoder
   # Pre-computed event signatures
   ETHSCRIPTION_CREATED = '0x' + Eth::Util.keccak256(
-    'EthscriptionCreated(bytes32,address,address,bytes32,uint256,uint256)'
+    'EthscriptionCreated(bytes32,address,address,bytes32,bytes32,uint256)'
   ).unpack1('H*')
 
   # New Ethscriptions protocol transfer event (matches protocol semantics)
@@ -79,7 +79,7 @@ class EventDecoder
       # topics[1] = indexed bytes32 transactionHash
       # topics[2] = indexed address creator
       # topics[3] = indexed address initialOwner
-      # data = abi.encode(contentSha, ethscriptionNumber, pointerCount)
+      # data = abi.encode(contentUriHash, contentSha, ethscriptionNumber)
 
       tx_hash = log['topics'][1]
       creator = decode_address_from_topic(log['topics'][2])
@@ -91,17 +91,17 @@ class EventDecoder
 
       return nil if data_bytes.length < 96  # Need at least 3 * 32 bytes
 
-      content_sha = '0x' + data_bytes[0, 32].unpack1('H*')
-      ethscription_number = data_bytes[32, 32].unpack1('H*').to_i(16)
-      pointer_count = data_bytes[64, 32].unpack1('H*').to_i(16)
+      content_uri_hash = '0x' + data_bytes[0, 32].unpack1('H*')
+      content_sha = '0x' + data_bytes[32, 32].unpack1('H*')
+      ethscription_number = data_bytes[64, 32].unpack1('H*').to_i(16)
 
       {
         tx_hash: tx_hash,
         creator: creator,
         initial_owner: initial_owner,
+        content_uri_hash: content_uri_hash,
         content_sha: content_sha,
-        ethscription_number: ethscription_number,
-        pointer_count: pointer_count
+        ethscription_number: ethscription_number
       }
     rescue => e
       Rails.logger.error "Failed to decode creation event: #{e.message}"

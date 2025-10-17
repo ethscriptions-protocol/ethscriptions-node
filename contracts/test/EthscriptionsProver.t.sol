@@ -16,7 +16,7 @@ contract EthscriptionsProverTest is TestSetup {
     function setUp() public override {
         super.setUp();
 
-        vm.warp(1760630077);
+        vm.warp(Constants.historicalBackfillApproxDoneAt);
 
         // Create a test ethscription with alice as creator
         vm.startPrank(alice);

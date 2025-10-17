@@ -26,7 +26,7 @@ contract TestImageSVGWrapper is TestSetup {
             mimeSubtype: "png",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "",
+                protocolName: "",
                 operation: "",
                 data: ""
             })

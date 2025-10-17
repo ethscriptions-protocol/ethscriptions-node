@@ -28,7 +28,7 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "erc-20",
+                protocolName: "erc-20",
                 operation: "deploy",
                 data: abi.encode(deployOp)
             })
@@ -68,7 +68,7 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "erc-20",
+                protocolName: "erc-20",
                 operation: "mint",
                 data: abi.encode(mintOp)
             })
@@ -97,7 +97,7 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "",
+                protocolName: "",
                 operation: "",
                 data: ""
             })
@@ -132,7 +132,7 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mimeSubtype: "json",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "erc-20",
+                protocolName: "erc-20",
                 operation: "deploy",
                 data: abi.encode(deployOp)
             })
@@ -160,7 +160,7 @@ contract EthscriptionsTokenParamsTest is TestSetup {
             mimeSubtype: "json",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "erc-20",
+                protocolName: "erc-20",
                 operation: "mint",
                 data: abi.encode(mintOp)
             })

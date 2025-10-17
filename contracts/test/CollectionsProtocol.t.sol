@@ -86,7 +86,7 @@ contract CollectionsProtocolTest is TestSetup {
             mimeSubtype: "json",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: "collections",
+                protocolName: "collections",
                 operation: "create_collection",
                 data: encodedProtocolData
             })

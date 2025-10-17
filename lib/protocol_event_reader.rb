@@ -3,9 +3,9 @@ class ProtocolEventReader
   # Event signatures from contracts
   EVENT_SIGNATURES = {
     # Ethscriptions.sol events
-    'EthscriptionCreated' => 'EthscriptionCreated(bytes32,address,address,bytes32,uint256,uint256)',
+    'EthscriptionCreated' => 'EthscriptionCreated(bytes32,address,address,bytes32,bytes32,uint256)',
     'Transfer' => 'Transfer(address,address,uint256)',
-    'ProtocolHandlerSuccess' => 'ProtocolHandlerSuccess(bytes32,string)',
+    'ProtocolHandlerSuccess' => 'ProtocolHandlerSuccess(bytes32,string,bytes)',
     'ProtocolHandlerFailed' => 'ProtocolHandlerFailed(bytes32,string,bytes)',
 
     # TokenManager.sol events
@@ -92,11 +92,11 @@ class ProtocolEventReader
   end
 
   def self.parse_protocol_handler_success(log)
-    # ProtocolHandlerSuccess(bytes32 indexed txHash, string protocol)
+    # ProtocolHandlerSuccess(bytes32 indexed txHash, string protocol, bytes returnData)
     tx_hash = log['topics'][1] # indexed parameter
 
     # Decode non-indexed data
-    # The data contains a single string parameter
+    # The data contains string protocol and bytes returnData parameters
     if log['data'] && log['data'] != '0x'
       data_hex = log['data'].delete_prefix('0x')
       # Handle empty or very short data
@@ -104,23 +104,26 @@ class ProtocolEventReader
         return {
           event: 'ProtocolHandlerSuccess',
           tx_hash: tx_hash,
-          protocol: ''
+          protocol: '',
+          return_data: '0x'
         }
       end
 
       data = [data_hex].pack('H*')
-      decoded = Eth::Abi.decode(['string'], data)
+      decoded = Eth::Abi.decode(['string', 'bytes'], data)
 
       {
         event: 'ProtocolHandlerSuccess',
         tx_hash: tx_hash,
-        protocol: decoded[0]
+        protocol: decoded[0],
+        return_data: '0x' + decoded[1].unpack1('H*')
       }
     else
       {
         event: 'ProtocolHandlerSuccess',
         tx_hash: tx_hash,
-        protocol: ''
+        protocol: '',
+        return_data: '0x'
       }
     end
   rescue => e
@@ -129,7 +132,8 @@ class ProtocolEventReader
     {
       event: 'ProtocolHandlerSuccess',
       tx_hash: log['topics'][1],
-      protocol: 'parse_error'
+      protocol: 'parse_error',
+      return_data: '0x'
     }
   end
 

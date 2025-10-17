@@ -55,7 +55,7 @@ contract EthscriptionsTokenTest is TestSetup {
             mimeSubtype: "plain",
             esip6: false,
             protocolParams: Ethscriptions.ProtocolParams({
-                protocol: protocol,
+                protocolName: protocol,
                 operation: operation,
                 data: data
             })
@@ -304,7 +304,7 @@ contract EthscriptionsTokenTest is TestSetup {
         
         // Bob tries to transfer tokens directly (not via NFT) - should revert
         vm.prank(bob);
-        vm.expectRevert("Transfers only allowed via Ethscriptions NFT");
+        vm.expectRevert(EthscriptionsERC20.TransfersOnlyViaEthscriptions.selector);
         token.transfer(charlie, 500);
     }
     

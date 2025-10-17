@@ -99,7 +99,7 @@ contract EthscriptionsCompressionTest is TestSetup {
     //         esip6: false,
     //         isCompressed: false,
     //         protocolParams: Ethscriptions.ProtocolParams({
-    //             protocol: "", operation: "", data: ""
+    //             protocolName: "", operation: "", data: ""
     //         })
     //     }));
     //     uint256 uncompressedGas = gasStart - gasleft();
@@ -117,7 +117,7 @@ contract EthscriptionsCompressionTest is TestSetup {
     //         esip6: false,
     //         isCompressed: true,
     //         protocolParams: Ethscriptions.ProtocolParams({
-    //             protocol: "", operation: "", data: ""
+    //             protocolName: "", operation: "", data: ""
     //         })
     //     }));
     //     uint256 compressedGas = gasStart - gasleft();

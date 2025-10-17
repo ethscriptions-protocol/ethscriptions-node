@@ -58,7 +58,7 @@ contract EndToEndCompressionTest is TestSetup {
     //     //     esip6: false,
     //     //     isCompressed: isCompressed,
     //     //     protocolParams: Ethscriptions.ProtocolParams({
-    //     //         protocol: "",
+    //     //         protocolName: "",
     //     //         operation: "",
     //     //         data: ""
     //     //     })

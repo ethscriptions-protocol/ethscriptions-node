@@ -2,16 +2,22 @@
 pragma solidity ^0.8.24;
 
 import "./TestSetup.sol";
+import "./EthscriptionsWithTestFunctions.sol";
 import "forge-std/StdJson.sol";
 
 contract EthscriptionsJsonTest is TestSetup {
     using stdJson for string;
 
-    Ethscriptions internal eth;
+    EthscriptionsWithTestFunctions internal eth;
 
     function setUp() public override {
         super.setUp();
-        eth = ethscriptions;
+
+        // Deploy the test version of Ethscriptions with additional test functions
+        // and replace the regular Ethscriptions at the predeploy address
+        EthscriptionsWithTestFunctions testEthscriptions = new EthscriptionsWithTestFunctions();
+        vm.etch(Predeploys.ETHSCRIPTIONS, address(testEthscriptions).code);
+        eth = EthscriptionsWithTestFunctions(Predeploys.ETHSCRIPTIONS);
     }
 
     function test_CreateAndTokenURIGas_FromJson() public {

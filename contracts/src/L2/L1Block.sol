@@ -90,7 +90,7 @@ contract L1Block {
     }
 
     function _flushProofsIfLive() internal {
-        if (block.timestamp >= 1760630077) {
+        if (block.timestamp >= Constants.historicalBackfillApproxDoneAt) {
             // Each proof includes its own block number and timestamp from when it was queued
             IEthscriptionsProver(Predeploys.ETHSCRIPTIONS_PROVER).flushAllProofs();
         }
