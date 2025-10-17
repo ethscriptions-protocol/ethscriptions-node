@@ -3,7 +3,7 @@ class EthTransaction < T::Struct
   
   # ESIP event signatures for detecting Ethscription events
   def self.event_signature(event_name)
-    "0x" + Digest::Keccak256.hexdigest(event_name)
+    '0x' + Eth::Util.keccak256(event_name).unpack1('H*')
   end
   
   CreateEthscriptionEventSig = event_signature("ethscriptions_protocol_CreateEthscription(address,string)")
