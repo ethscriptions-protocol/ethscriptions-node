@@ -484,8 +484,10 @@ contract Ethscriptions is ERC721EthscriptionsUpgradeable {
         // Content doesn't exist, store it using SSTORE2
         address[] memory pointers = SSTORE2ChunkedStorageLib.store(content);
 
-        // Store pointers array
-        contentPointersBySha[contentSha] = pointers;
+        // Only store non-empty pointer arrays (empty content doesn't need deduplication)
+        if (pointers.length > 0) {
+            contentPointersBySha[contentSha] = pointers;
+        }
 
         return contentSha;
     }

@@ -13,6 +13,10 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 contract EthscriptionsProver {
     using EnumerableSet for EnumerableSet.Bytes32Set;
 
+    // =============================================================
+    //                           STRUCTS
+    // =============================================================
+
     /// @notice Info stored when an ethscription is queued for proving
     struct QueuedProof {
         uint256 l2BlockNumber;
@@ -21,21 +25,6 @@ contract EthscriptionsProver {
         uint256 l1BlockNumber;
     }
 
-    /// @notice Set of all ethscription transaction hashes queued for proving
-    EnumerableSet.Bytes32Set private queuedEthscriptions;
-
-    /// @notice Mapping from ethscription tx hash to its queued proof info
-    mapping(bytes32 => QueuedProof) private queuedProofInfo;
-
-    /// @notice L1Block contract address for access control
-    address public constant L1_BLOCK = Predeploys.L1_BLOCK_ATTRIBUTES;
-    /// @notice L2ToL1MessagePasser predeploy address on OP Stack
-    L2ToL1MessagePasser constant L2_TO_L1_MESSAGE_PASSER = 
-        L2ToL1MessagePasser(Predeploys.L2_TO_L1_MESSAGE_PASSER);
-    
-    /// @notice The Ethscriptions contract (pre-deployed at known address)
-    Ethscriptions public constant ethscriptions = Ethscriptions(Predeploys.ETHSCRIPTIONS);
-    
     /// @notice Struct for ethscription data proof
     struct EthscriptionDataProof {
         bytes32 ethscriptionTxHash;
@@ -51,19 +40,58 @@ contract EthscriptionsProver {
         uint256 l2BlockNumber;
         uint256 l2Timestamp;
     }
-    
-    /// @notice Events for tracking proofs
+
+    // =============================================================
+    //                         CONSTANTS
+    // =============================================================
+
+    /// @notice L1Block contract address for access control
+    address constant L1_BLOCK = Predeploys.L1_BLOCK_ATTRIBUTES;
+
+    /// @notice L2ToL1MessagePasser predeploy address on OP Stack
+    L2ToL1MessagePasser constant L2_TO_L1_MESSAGE_PASSER =
+        L2ToL1MessagePasser(Predeploys.L2_TO_L1_MESSAGE_PASSER);
+
+    /// @notice The Ethscriptions contract (pre-deployed at known address)
+    Ethscriptions constant ethscriptions = Ethscriptions(Predeploys.ETHSCRIPTIONS);
+
+    // =============================================================
+    //                      STATE VARIABLES
+    // =============================================================
+
+    /// @notice Set of all ethscription transaction hashes queued for proving
+    EnumerableSet.Bytes32Set private queuedEthscriptions;
+
+    /// @notice Mapping from ethscription tx hash to its queued proof info
+    mapping(bytes32 => QueuedProof) private queuedProofInfo;
+
+    // =============================================================
+    //                      CUSTOM ERRORS
+    // =============================================================
+
+    error OnlyEthscriptions();
+    error OnlyL1Block();
+
+    // =============================================================
+    //                          EVENTS
+    // =============================================================
+
+    /// @notice Emitted when an ethscription data proof is sent to L1
     event EthscriptionDataProofSent(
         bytes32 indexed ethscriptionTxHash,
         uint256 indexed l2BlockNumber,
         uint256 l2Timestamp
     );
 
+    // =============================================================
+    //                    EXTERNAL FUNCTIONS
+    // =============================================================
+
     /// @notice Queue an ethscription for proving
     /// @dev Only callable by the Ethscriptions contract
     /// @param txHash The transaction hash of the ethscription
     function queueEthscription(bytes32 txHash) external virtual {
-        require(msg.sender == address(ethscriptions), "Only Ethscriptions contract can queue");
+        if (msg.sender != address(ethscriptions)) revert OnlyEthscriptions();
 
         // Add to the set (deduplicates automatically)
         if (queuedEthscriptions.add(txHash)) {
@@ -82,7 +110,7 @@ contract EthscriptionsProver {
     /// @notice Flush all queued proofs
     /// @dev Only callable by the L1Block contract at the start of each new block
     function flushAllProofs() external {
-        require(msg.sender == L1_BLOCK, "Only L1Block can flush");
+        if (msg.sender != L1_BLOCK) revert OnlyL1Block();
 
         uint256 count = queuedEthscriptions.length();
 
@@ -99,6 +127,10 @@ contract EthscriptionsProver {
             delete queuedProofInfo[txHash];
         }
     }
+
+    // =============================================================
+    //                    INTERNAL FUNCTIONS
+    // =============================================================
 
     /// @notice Internal function to create and send proof for an ethscription
     /// @param ethscriptionTxHash The transaction hash of the ethscription
@@ -130,5 +162,4 @@ contract EthscriptionsProver {
 
         emit EthscriptionDataProofSent(ethscriptionTxHash, proofInfo.l2BlockNumber, proofInfo.l2BlockTimestamp);
     }
-
 }
